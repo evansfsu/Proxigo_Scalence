@@ -1,0 +1,168 @@
+# Proxigo Scalence - PX4 SITL Simulation Stack with Gazebo Harmonic
+# Fixed-Wing UAV simulation with 3D visualization
+#
+# Prerequisites:
+#   - VcXsrv running on Windows with "Disable access control" checked
+#   - Docker Desktop running
+#
+# Usage:
+#   docker compose -f docker-compose.sitl.yml up px4         # Start PX4 + Gazebo (headless)
+#   docker compose -f docker-compose.sitl.yml up px4 gui     # Start with 3D window
+#   docker compose -f docker-compose.sitl.yml up             # Full stack with navigation
+#   docker compose -f docker-compose.sitl.yml logs -f px4    # View PX4 logs
+
+services:
+  # ===========================================================
+  # PX4 SITL with Gazebo Harmonic - Fixed-Wing Simulation
+  # ===========================================================
+  px4:
+    image: proxigo/px4-gazebo:harmonic
+    container_name: px4_gazebo_plane
+    network_mode: host
+    environment:
+      - DISPLAY=host.docker.internal:0
+      - PX4_HOME_LAT=36.2291        # Death Valley Salt Flats
+      - PX4_HOME_LON=-116.8325
+      - PX4_HOME_ALT=50.0
+      - LIBGL_ALWAYS_SOFTWARE=1
+      - QT_X11_NO_MITSHM=1
+      - GZ_SIM_RESOURCE_PATH=/root/PX4-Autopilot/Tools/simulation/gz/models
+    working_dir: /root/PX4-Autopilot
+    command: make px4_sitl gz_advanced_plane
+    stdin_open: true
+    tty: true
+    healthcheck:
+      test: ["CMD", "bash", "-c", "pgrep -f px4 > /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 300s
+
+  # ===========================================================
+  # Gazebo GUI - 3D Visualization Window
+  # ===========================================================
+  gui:
+    image: proxigo/px4-gazebo:harmonic
+    container_name: gazebo_gui
+    network_mode: host
+    environment:
+      - DISPLAY=host.docker.internal:0
+      - LIBGL_ALWAYS_SOFTWARE=1
+      - QT_X11_NO_MITSHM=1
+    command: gz sim -g
+    depends_on:
+      - px4
+    profiles:
+      - gui
+
+  # ===========================================================
+  # MAVROS - MAVLink to ROS2 Bridge
+  # ===========================================================
+  mavros:
+    image: proxigo/navigation:dev
+    container_name: mavros
+    network_mode: host
+    environment:
+      - ROS_DOMAIN_ID=0
+    volumes:
+      - ./config:/ros2_ws/config:ro
+    command: >
+      bash -c "
+        source /opt/ros/humble/setup.bash &&
+        ros2 launch mavros px4.launch.py fcu_url:=udp://:14540@localhost:14557
+      "
+    depends_on:
+      px4:
+        condition: service_started
+    restart: on-failure
+
+  # ===========================================================
+  # VIO Simulation Stack
+  # ===========================================================
+  vio_sim:
+    image: proxigo/ros2-base:dev
+    container_name: vio_sim
+    network_mode: host
+    environment:
+      - ROS_DOMAIN_ID=0
+    volumes:
+      - ./src:/ros2_ws/src:rw
+      - ./config:/ros2_ws/config:ro
+      - ./satellite_data:/satellite_data:ro
+    command: >
+      bash -c "
+        source /opt/ros/humble/setup.bash &&
+        cd /ros2_ws &&
+        colcon build --symlink-install --packages-select vio_bridge satellite_matching state_fusion &&
+        source install/setup.bash &&
+        ros2 launch vio_bridge vio_bridge.launch.py sim_mode:=true
+      "
+    depends_on:
+      - mavros
+
+  # ===========================================================
+  # Satellite Matching
+  # ===========================================================
+  satellite:
+    image: proxigo/ros2-base:dev
+    container_name: satellite_matching
+    network_mode: host
+    environment:
+      - ROS_DOMAIN_ID=0
+    volumes:
+      - ./src:/ros2_ws/src:rw
+      - ./config:/ros2_ws/config:ro
+      - ./satellite_data:/satellite_data:ro
+    command: >
+      bash -c "
+        source /opt/ros/humble/setup.bash &&
+        cd /ros2_ws &&
+        colcon build --symlink-install --packages-select satellite_matching &&
+        source install/setup.bash &&
+        ros2 launch satellite_matching satellite_matching.launch.py
+      "
+    depends_on:
+      - vio_sim
+
+  # ===========================================================
+  # State Fusion
+  # ===========================================================
+  fusion:
+    image: proxigo/ros2-base:dev
+    container_name: state_fusion
+    network_mode: host
+    environment:
+      - ROS_DOMAIN_ID=0
+    volumes:
+      - ./src:/ros2_ws/src:rw
+      - ./config:/ros2_ws/config:ro
+    command: >
+      bash -c "
+        source /opt/ros/humble/setup.bash &&
+        cd /ros2_ws &&
+        colcon build --symlink-install --packages-select state_fusion &&
+        source install/setup.bash &&
+        ros2 launch state_fusion state_fusion.launch.py
+      "
+    depends_on:
+      - satellite
+
+  # ===========================================================
+  # Development Shell (for debugging)
+  # ===========================================================
+  shell:
+    image: proxigo/ros2-base:dev
+    container_name: dev_shell
+    network_mode: host
+    environment:
+      - ROS_DOMAIN_ID=0
+    volumes:
+      - ./src:/ros2_ws/src:rw
+      - ./config:/ros2_ws/config:rw
+      - ./satellite_data:/satellite_data:rw
+      - ./logs:/ros2_ws/logs:rw
+    command: bash
+    stdin_open: true
+    tty: true
+    profiles:
+      - debug

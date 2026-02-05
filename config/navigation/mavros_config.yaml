@@ -1,0 +1,136 @@
+# MAVROS2 Configuration for Proxigo Scalence
+# MAVLink to ROS2 bridge configuration
+
+/**:
+  ros__parameters:
+    # ============================================================
+    # CONNECTION SETTINGS
+    # ============================================================
+    
+    # FCU (Flight Control Unit) connection
+    # Serial: /dev/ttyTHS1:921600 (Orin UART)
+    # USB: /dev/ttyACM0:921600
+    # UDP: udp://:14540@127.0.0.1:14557 (SITL)
+    fcu_url: "/dev/ttyTHS1:921600"
+    
+    # Ground Control Station connection
+    # Forward MAVLink to QGroundControl
+    gcs_url: "udp://:14550@"
+    
+    # Target system/component IDs
+    target_system_id: 1
+    target_component_id: 1
+    
+    # ============================================================
+    # PLUGIN CONFIGURATION
+    # ============================================================
+    
+    # Enabled plugins
+    plugin_allowlist:
+      - "sys_*"
+      - "imu"
+      - "local_position"
+      - "global_position"
+      - "setpoint_*"
+      - "vision_pose"
+      - "vision_speed"
+      - "ftp"
+      - "param"
+      - "command"
+      - "rc_io"
+      - "waypoint"
+      - "home_position"
+    
+    # Disabled plugins (for performance)
+    plugin_denylist:
+      - "actuator_control"
+      - "hil_*"
+      - "mocap_*"
+      - "safety_area"
+      - "debug_value"
+
+    # ============================================================
+    # FRAME CONFIGURATION
+    # ============================================================
+    
+    # Local position configuration
+    local_position:
+      frame_id: "map"
+      tf:
+        send: true
+        frame_id: "map"
+        child_frame_id: "base_link"
+    
+    # Global position configuration
+    global_position:
+      frame_id: "map"
+      child_frame_id: "base_link"
+      rot_covariance: 99999.0
+      gps_uere: 1.0
+      use_relative_alt: true
+      
+    # IMU configuration
+    imu:
+      frame_id: "base_link"
+      linear_acceleration_stdev: 0.0003
+      angular_velocity_stdev: 0.0003
+      orientation_stdev: 1.0
+      magnetic_stdev: 0.0
+
+    # ============================================================
+    # VISION POSE CONFIGURATION
+    # ============================================================
+    
+    # Vision pose input (from VIO/fusion)
+    vision_pose:
+      # Input topic: /mavros/vision_pose/pose
+      frame_id: "map"
+      
+    # Vision speed input (optional)
+    vision_speed:
+      frame_id: "map"
+
+    # ============================================================
+    # TIME SYNCHRONIZATION
+    # ============================================================
+    
+    # Time synchronization between FCU and companion
+    timesync:
+      mode: "MAVLINK"  # MAVLINK, ONBOARD, PASSTHROUGH, NONE
+      
+    # System time publishing
+    sys_time:
+      publish_rate: 10.0  # Hz
+      
+    # ============================================================
+    # SETPOINT CONFIGURATION
+    # ============================================================
+    
+    # Position setpoint configuration
+    setpoint_position:
+      mav_frame: "LOCAL_NED"
+      
+    # Velocity setpoint configuration  
+    setpoint_velocity:
+      mav_frame: "LOCAL_NED"
+      
+    # Attitude setpoint configuration
+    setpoint_attitude:
+      use_quaternion: true
+
+    # ============================================================
+    # MISSION / WAYPOINT
+    # ============================================================
+    
+    # Mission configuration
+    mission:
+      pull_after_gcs: true
+      use_mission_item_int: true
+
+    # ============================================================
+    # COMMAND INTERFACE
+    # ============================================================
+    
+    # Command plugin configuration
+    cmd:
+      use_comp_id_system_control: false

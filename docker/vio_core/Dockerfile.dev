@@ -1,0 +1,32 @@
+# Proxigo Scalence - VIO Core Development Container (x86_64)
+# For development without real camera hardware
+#
+# Build: docker build -t proxigo/vio-core:dev -f docker/vio_core/Dockerfile.dev .
+
+FROM proxigo/ros2-base:dev
+
+# Install additional VIO dependencies
+RUN apt-get update && apt-get install -y \
+    ros-humble-image-pipeline \
+    ros-humble-camera-calibration \
+    ros-humble-camera-info-manager \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone OpenVINS (ROS2 compatible)
+WORKDIR /ros2_ws/src
+RUN git clone --depth 1 https://github.com/rpng/open_vins.git
+
+# Build workspace
+WORKDIR /ros2_ws
+RUN /bin/bash -c "source /opt/ros/humble/setup.bash && \
+    rosdep install --from-paths src --ignore-src -r -y || true && \
+    colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release"
+
+# Create logs directory
+RUN mkdir -p /ros2_ws/logs
+
+# Set environment
+ENV ROS_DOMAIN_ID=0
+
+ENTRYPOINT ["/ros2_entrypoint.sh"]
+CMD ["bash"]

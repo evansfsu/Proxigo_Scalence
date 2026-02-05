@@ -1,0 +1,147 @@
+# Camera-IMU Extrinsic Calibration - Estimated
+# Transform from IMU frame to Camera optical frame
+#
+# ============================================================
+# ⚠️  IMPORTANT: These are ESTIMATED values for development!
+# ⚠️  You MUST recalibrate with actual hardware before flight!
+# ============================================================
+#
+# Assumptions for estimation:
+# - Camera mounted forward-facing on drone
+# - IMU located near center of mass
+# - Camera ~5cm forward and ~2cm above IMU
+# - Camera aligned with drone body (no rotation)
+
+# ============================================================
+# COORDINATE FRAME CONVENTIONS
+# ============================================================
+#
+# IMU Frame (body frame):
+#   X: Forward (nose direction)
+#   Y: Left
+#   Z: Up
+#   (NWU - North-West-Up, or FLU - Forward-Left-Up)
+#
+# Camera Optical Frame:
+#   X: Right (in image)
+#   Y: Down (in image)  
+#   Z: Forward (optical axis, into scene)
+#   (Standard camera/OpenCV convention)
+#
+# The transform T_imu_cam transforms points FROM camera TO imu:
+#   p_imu = T_imu_cam * p_cam
+
+# ============================================================
+# TRANSFORMATION MATRIX
+# ============================================================
+
+# Rotation: Camera optical frame to IMU body frame
+# Camera Z (forward) -> IMU X (forward)
+# Camera X (right)   -> IMU Y (left, negated)
+# Camera Y (down)    -> IMU Z (up, negated)
+#
+# R = [  0,  0,  1 ]   (IMU_x = Cam_z)
+#     [ -1,  0,  0 ]   (IMU_y = -Cam_x)
+#     [  0, -1,  0 ]   (IMU_z = -Cam_y)
+
+T_imu_cam:
+  # Rotation matrix (row-major, 3x3)
+  rotation:
+    r11: 0.0
+    r12: 0.0
+    r13: 1.0
+    r21: -1.0
+    r22: 0.0
+    r23: 0.0
+    r31: 0.0
+    r32: -1.0
+    r33: 0.0
+  
+  # Translation (meters): camera position in IMU frame
+  # Assumes camera is 5cm forward, 0cm left, 2cm above IMU
+  translation:
+    x: 0.05   # 5cm forward
+    y: 0.0    # centered laterally
+    z: 0.02   # 2cm above
+
+# Alternative representation: Quaternion (w, x, y, z)
+# This quaternion represents the same rotation as above
+T_imu_cam_quaternion:
+  qw: 0.5
+  qx: -0.5
+  qy: 0.5
+  qz: -0.5
+  tx: 0.05
+  ty: 0.0
+  tz: 0.02
+
+# ============================================================
+# TIME OFFSET
+# ============================================================
+# Time offset between camera and IMU timestamps
+# camera_time = imu_time + timeshift
+# 
+# Typical values: -50ms to +50ms
+# Positive: camera timestamps are later than IMU
+# This should be calibrated, start with 0
+
+timeshift_cam_imu: 0.0  # seconds
+
+# ============================================================
+# CALIBRATION METADATA
+# ============================================================
+calibration:
+  status: "ESTIMATED"
+  date: "2024-01-01"
+  method: "manual_measurement"
+  
+  # Estimated accuracy
+  translation_accuracy_m: 0.02    # ±2cm
+  rotation_accuracy_deg: 5.0      # ±5°
+  timeshift_accuracy_ms: 20.0     # ±20ms
+
+# ============================================================
+# NOTES FOR ACTUAL CALIBRATION
+# ============================================================
+# To calibrate camera-IMU extrinsics:
+#
+# Option 1: Kalibr (Recommended)
+#   1. Collect synchronized camera + IMU data
+#   2. Use AprilTag or checkerboard target
+#   3. Run kalibr_calibrate_imu_camera
+#   
+#   Commands:
+#   kalibr_calibrate_imu_camera \
+#     --target april_6x6.yaml \
+#     --cam cam.yaml \
+#     --imu imu.yaml \
+#     --bag calibration.bag
+#
+# Option 2: Physical Measurement
+#   1. Measure camera position relative to IMU with calipers
+#   2. Measure camera orientation (use level/protractor)
+#   3. Refine with VIO performance testing
+#
+# Option 3: Online Calibration
+#   - OpenVINS supports online extrinsics calibration
+#   - Set calib_cam_extrinsics: true in config
+#   - Requires good initial estimate
+
+# ============================================================
+# TYPICAL VALUES FOR DIFFERENT SETUPS
+# ============================================================
+# 
+# Forward-facing camera (common for fixed-wing):
+#   rotation: camera optical axis aligned with flight direction
+#   translation: camera in front of IMU
+#
+# Downward-facing camera (for terrain matching):
+#   rotation: camera optical axis pointing down
+#   R = [ 1,  0,  0 ]
+#       [ 0,  0,  1 ]
+#       [ 0, -1,  0 ]
+#
+# Stereo setup:
+#   Left camera: x offset negative
+#   Right camera: x offset positive
+#   Baseline typically 10-30cm

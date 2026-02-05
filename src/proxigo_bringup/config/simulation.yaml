@@ -1,0 +1,45 @@
+# Proxigo Scalence - Simulation Configuration
+
+# VIO Bridge
+vio_bridge:
+  vio_topic: "/ov_msckf/odomimu"
+  output_frame: "odom"
+  body_frame: "base_link"
+  publish_tf: true
+  satellite_match_interval: 1.0
+
+# Camera Simulator
+camera_simulator:
+  image_width: 1920
+  image_height: 1080
+  fps: 30.0
+  frame_id: "camera_optical_frame"
+  simulate_motion: true
+
+# IMU Simulator
+imu_simulator:
+  rate: 400.0
+  frame_id: "imu_link"
+  accel_noise: 0.002
+  gyro_noise: 0.0002
+
+# Satellite Matching
+satellite_matching:
+  satellite_data_path: "/satellite_data"
+  region_id: "test_region"
+  initial_lat: 39.678123
+  initial_lon: -75.750456
+  confidence_threshold: 0.3
+  min_matches: 10
+
+# State Fusion
+state_fusion:
+  vio_position_noise: 0.01
+  vio_velocity_noise: 0.1
+  satellite_position_noise: 5.0
+  alignment_learning_rate: 0.1
+
+# MAVROS Bridge
+mavros_bridge:
+  vision_pose_rate: 30.0
+  local_frame: "map"

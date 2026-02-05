@@ -1,0 +1,44 @@
+{
+  "region_id": "death_valley_2km",
+  "name": "Satellite imagery for death_valley_2km",
+  "created": "2026-02-04T17:33:59.748663",
+  "source": "ESRI World Imagery",
+  "center": {
+    "latitude": 36.2291,
+    "longitude": -116.8325
+  },
+  "bounds": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [
+          -116.84366828189579,
+          36.220090990991
+        ],
+        [
+          -116.84366828189579,
+          36.23810900900901
+        ],
+        [
+          -116.8213317181042,
+          36.23810900900901
+        ],
+        [
+          -116.8213317181042,
+          36.220090990991
+        ],
+        [
+          -116.84366828189579,
+          36.220090990991
+        ]
+      ]
+    ]
+  },
+  "imagery": {
+    "resolution_m": 0.96341735011987,
+    "width_pixels": 2816,
+    "height_pixels": 2816,
+    "file": "satellite.png"
+  },
+  "coverage_m": 2000.0
+}

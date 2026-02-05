@@ -1,0 +1,96 @@
+# PX4 SITL with Gazebo Harmonic (New Gazebo)
+# Supports fixed-wing, VTOL, and multirotor simulation
+#
+# Build: docker build -t proxigo/px4-gazebo:harmonic -f docker/px4_sitl/Dockerfile.gazebo .
+
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# Install base dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    git \
+    cmake \
+    build-essential \
+    python3 \
+    python3-pip \
+    python3-dev \
+    software-properties-common \
+    lsb-release \
+    gnupg \
+    sudo \
+    openjdk-11-jdk \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Gazebo Harmonic
+RUN curl https://packages.osrfoundation.org/gazebo.gpg --output /usr/share/keyrings/pkgs-osrf-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/pkgs-osrf-archive-keyring.gpg] http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/gazebo-stable.list > /dev/null \
+    && apt-get update \
+    && apt-get install -y gz-harmonic \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install PX4 dependencies + OpenCV
+RUN apt-get update && apt-get install -y \
+    ninja-build \
+    ccache \
+    libgstreamer1.0-dev \
+    libgstreamer-plugins-base1.0-dev \
+    gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad \
+    gstreamer1.0-plugins-ugly \
+    gstreamer1.0-libav \
+    libprotobuf-dev \
+    protobuf-compiler \
+    libeigen3-dev \
+    libxml2-dev \
+    libxslt1-dev \
+    libopencv-dev \
+    python3-opencv \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+RUN pip3 install --no-cache-dir \
+    kconfiglib \
+    jsonschema \
+    jinja2 \
+    pyserial \
+    empy==3.3.4 \
+    toml \
+    numpy \
+    packaging \
+    pyyaml \
+    future \
+    pyros-genmsg
+
+# Clone PX4 stable release
+WORKDIR /root
+RUN git clone --depth 1 --branch v1.15.0 https://github.com/PX4/PX4-Autopilot.git
+
+# Initialize all required submodules
+WORKDIR /root/PX4-Autopilot
+RUN git submodule update --init --recursive
+
+# Set environment
+ENV GZ_VERSION=harmonic
+ENV PX4_HOME_LAT=36.2291
+ENV PX4_HOME_LON=-116.8325
+ENV PX4_HOME_ALT=50
+
+WORKDIR /root/PX4-Autopilot
+
+# Create startup script that will build on first run
+RUN echo '#!/bin/bash\n\
+cd /root/PX4-Autopilot\n\
+if [ ! -f /root/.px4_built ]; then\n\
+  echo "First run - building PX4 (this takes 5-10 minutes)..."\n\
+  make px4_sitl gz_advanced_plane\n\
+  touch /root/.px4_built\n\
+else\n\
+  make px4_sitl gz_advanced_plane\n\
+fi' > /root/start_sim.sh && chmod +x /root/start_sim.sh
+
+CMD ["bash"]

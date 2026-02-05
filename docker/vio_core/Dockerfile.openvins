@@ -1,0 +1,40 @@
+# Proxigo Scalence - OpenVINS Container
+# Full VIO system with OpenVINS
+#
+# Build: docker build -t proxigo/openvins:dev -f docker/vio_core/Dockerfile.openvins .
+
+FROM proxigo/ros2-base:dev
+
+# Install OpenVINS dependencies
+RUN apt-get update && apt-get install -y \
+    libceres-dev \
+    libsuitesparse-dev \
+    libgoogle-glog-dev \
+    libgflags-dev \
+    libyaml-cpp-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone OpenVINS
+WORKDIR /ros2_ws/src
+RUN git clone --depth 1 https://github.com/rpng/open_vins.git
+
+# Build OpenVINS
+WORKDIR /ros2_ws
+RUN /bin/bash -c "source /opt/ros/humble/setup.bash && \
+    rosdep install --from-paths src --ignore-src -r -y || true && \
+    colcon build --symlink-install \
+        --packages-select ov_core ov_init ov_msckf \
+        --cmake-args -DCMAKE_BUILD_TYPE=Release"
+
+# Copy Proxigo configuration for OpenVINS
+COPY config/vio/openvins_proxigo.yaml /ros2_ws/config/openvins.yaml
+COPY config/camera/imx477_calibration_estimated.yaml /ros2_ws/config/camera.yaml
+COPY config/camera/camera_imu_extrinsics_estimated.yaml /ros2_ws/config/extrinsics.yaml
+
+# Create logs directory
+RUN mkdir -p /ros2_ws/logs
+
+ENV ROS_DOMAIN_ID=0
+
+ENTRYPOINT ["/ros2_entrypoint.sh"]
+CMD ["bash"]

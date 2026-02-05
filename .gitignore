@@ -1,0 +1,110 @@
+# Proxigo Scalence - Git Ignore
+
+# =============================================================
+# Build artifacts
+# =============================================================
+build/
+install/
+log/
+devel/
+*.pyc
+__pycache__/
+*.egg-info/
+.eggs/
+
+# =============================================================
+# IDE and Editor
+# =============================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.cproject
+.pydevproject
+.settings/
+
+# =============================================================
+# ROS2 artifacts
+# =============================================================
+*.bag
+*.db3
+*.db3-shm
+*.db3-wal
+
+# =============================================================
+# Docker
+# =============================================================
+.docker/
+
+# =============================================================
+# Logs
+# =============================================================
+logs/
+*.log
+*.log.*
+
+# =============================================================
+# Data files (large files - should be managed separately)
+# =============================================================
+satellite_data/regions/*/satellite.tif
+satellite_data/regions/*/elevation.tif
+test_data/*.bag
+test_data/*.db3
+recordings/
+
+# Keep directory structure
+!satellite_data/.gitkeep
+!satellite_data/regions/.gitkeep
+!test_data/.gitkeep
+!recordings/.gitkeep
+!logs/.gitkeep
+
+# =============================================================
+# Calibration files (machine-specific)
+# =============================================================
+# config/camera/*_calibration.yaml
+# config/camera/*_extrinsics.yaml
+
+# =============================================================
+# Operating System
+# =============================================================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# =============================================================
+# Python
+# =============================================================
+venv/
+.env
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.coverage
+htmlcov/
+
+# =============================================================
+# C++
+# =============================================================
+*.o
+*.so
+*.a
+*.dylib
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# =============================================================
+# Temporary files
+# =============================================================
+*.tmp
+*.temp
+*.bak
+*.backup

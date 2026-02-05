@@ -1,0 +1,207 @@
+# OpenVINS Configuration for Proxigo Scalence
+# Optimized for fixed-wing UAV with Arducam IMX477
+#
+# Reference: https://docs.openvins.com/
+
+# ============================================================
+# GENERAL PARAMETERS
+# ============================================================
+
+# Verbosity level (0-5, higher = more output)
+verbosity: "INFO"
+
+# Use simulation time (for rosbag playback)
+use_sim_time: false
+
+# ============================================================
+# STATE OPTIONS
+# ============================================================
+
+# Use First-Estimate Jacobians (improves consistency)
+use_fej: true
+
+# Use IMU averaging 
+use_imuavg: true
+
+# Use RK4 integration (vs Euler)
+use_rk4int: true
+
+# Do we want to use IMU intrinsics calibration
+do_calib_imu_intrinsics: false
+do_calib_imu_g_sensitivity: false
+
+# Do we want to calibrate camera-IMU extrinsics
+do_calib_camera_intrinsics: false
+do_calib_camera_extrinsics: false
+do_calib_camera_timeoffset: true
+
+# Maximum number of clones in the sliding window
+max_clones: 11
+
+# Maximum number of SLAM features in state
+max_slam: 50
+max_slam_in_update: 25
+
+# Maximum number of ARUCO features
+max_aruco: 1024
+
+# ============================================================
+# FEATURE REPRESENTATION
+# ============================================================
+
+# Feature representation for MSCKF features
+# 0: GLOBAL_3D
+# 1: GLOBAL_FULL_INVERSE_DEPTH  
+# 2: ANCHORED_3D
+# 3: ANCHORED_FULL_INVERSE_DEPTH
+# 4: ANCHORED_MSCKF_INVERSE_DEPTH
+# 5: ANCHORED_INVERSE_DEPTH_SINGLE
+feat_rep_msckf: 5
+feat_rep_slam: 0
+feat_rep_aruco: 0
+
+# ============================================================
+# INITIALIZATION
+# ============================================================
+
+# Initialization mode: STATIC or DYNAMIC
+init_mode: "STATIC"
+
+# Static initialization window (seconds)
+init_window_time: 1.0
+
+# Static initialization IMU threshold
+init_imu_thresh: 0.5
+
+# Dynamic initialization
+init_dyn_use: false
+init_dyn_mle_opt_calib: false
+init_dyn_mle_max_iter: 50
+init_dyn_mle_max_time: 0.5
+init_dyn_mle_max_threads: 6
+init_dyn_num_pose: 6
+init_dyn_min_deg: 10.0
+
+# ============================================================
+# ZERO VELOCITY UPDATE (ZUPT)
+# ============================================================
+
+# Enable zero velocity updates (useful for takeoff)
+try_zupt: true
+zupt_max_velocity: 0.1
+zupt_noise_multiplier: 10
+zupt_chi2_multiplier: 0
+
+# ============================================================
+# FEATURE TRACKING
+# ============================================================
+
+# Number of features to track
+num_pts: 200
+
+# Feature grid dimensions
+grid_x: 5
+grid_y: 5
+
+# Minimum distance between features (pixels)
+min_px_dist: 15
+
+# FAST detector threshold
+fast_threshold: 20
+
+# KLT tracking parameters
+klt_win_size: 21
+klt_max_level: 5
+
+# Histogram equalization
+histogram_method: "HISTOGRAM"
+
+# Downsampling for tracking (1 = full resolution)
+downsample_cameras: false
+
+# ============================================================
+# CAMERA PARAMETERS
+# ============================================================
+
+# Number of cameras
+num_cameras: 1
+
+# Camera 0 configuration
+cam0:
+  # Camera model
+  cam_model: "pinhole"
+  distortion_model: "radtan"
+  
+  # Resolution
+  resolution: [1920, 1080]
+  
+  # Intrinsics [fx, fy, cx, cy]
+  # From estimated calibration
+  intrinsics: [1200.0, 1200.0, 960.0, 540.0]
+  
+  # Distortion [k1, k2, p1, p2]
+  distortion_coeffs: [-0.05, 0.01, 0.0, 0.0]
+  
+  # Time offset (camera - IMU)
+  timeshift_cam_imu: 0.0
+
+# Camera-IMU extrinsics T_imu_cam
+# Transforms from camera frame to IMU frame
+T_imu_cam:
+  - [0.0, -1.0, 0.0, 0.0]
+  - [0.0, 0.0, -1.0, 0.0]
+  - [1.0, 0.0, 0.0, 0.0]
+  - [0.0, 0.0, 0.0, 1.0]
+
+# ============================================================
+# IMU PARAMETERS
+# ============================================================
+
+# IMU intrinsic noise parameters (for VectorNav VN-100 or similar MEMS)
+accelerometer_noise_density: 0.002      # m/s²/√Hz
+accelerometer_random_walk: 0.0002       # m/s³/√Hz
+gyroscope_noise_density: 0.00016        # rad/s/√Hz
+gyroscope_random_walk: 0.000022         # rad/s²/√Hz
+
+# IMU update rate
+imu_rate: 400
+
+# Gravity magnitude
+gravity_mag: 9.81
+
+# ============================================================
+# PUBLISHERS
+# ============================================================
+
+# Publish rate (Hz)
+publish_rate: 30
+
+# Publish TF
+publish_tf: true
+
+# Frame IDs
+map_frame: "map"
+odom_frame: "odom"
+imu_frame: "imu"
+
+# Publish feature tracks
+publish_features: true
+publish_active_features: true
+
+# Save trajectory
+save_trajectory: false
+filepath_trajectory: "/ros2_ws/logs/trajectory.csv"
+
+# ============================================================
+# ROS TOPICS
+# ============================================================
+
+# Input topics
+topic_imu: "/vio/imu/data"
+topic_camera0: "/vio/camera/image_raw"
+
+# Output topics (these are fixed in OpenVINS)
+# /ov_msckf/odomimu - Odometry
+# /ov_msckf/poseimu - Pose
+# /ov_msckf/featuresaruco - ARUCO features
+# /ov_msckf/loop - Loop closure features

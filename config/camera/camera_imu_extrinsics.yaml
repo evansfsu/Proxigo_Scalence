@@ -1,0 +1,54 @@
+# Camera-IMU Extrinsic Calibration
+# Transform from IMU frame to Camera frame
+#
+# IMPORTANT: These values MUST be calibrated for your specific setup
+# Use Kalibr or similar tool for accurate calibration
+#
+# Coordinate frames:
+#   IMU frame: x-forward, y-left, z-up (NWU convention)
+#   Camera frame: z-forward, x-right, y-down (optical convention)
+
+# Transformation matrix T_imu_cam (4x4 homogeneous)
+# Transforms points from camera frame to IMU frame
+# p_imu = T_imu_cam * p_cam
+T_imu_cam:
+  # Rotation (camera optical to IMU body)
+  # This example assumes camera pointing forward, mounted level
+  rotation:
+    # Rotation matrix (row-major)
+    # Camera z-forward → IMU x-forward
+    # Camera x-right → IMU y-left (negated)  
+    # Camera y-down → IMU z-up (negated)
+    - [0.0, 0.0, 1.0]   # IMU x = Camera z
+    - [-1.0, 0.0, 0.0]  # IMU y = -Camera x
+    - [0.0, -1.0, 0.0]  # IMU z = -Camera y
+  
+  # Translation (meters) - camera position relative to IMU
+  translation:
+    x: 0.05   # Camera 5cm forward of IMU
+    y: 0.0    # Camera centered laterally
+    z: 0.02   # Camera 2cm above IMU
+    
+# Alternative: Quaternion representation
+T_imu_cam_quaternion:
+  # Quaternion (w, x, y, z)
+  qw: 0.5
+  qx: -0.5
+  qy: 0.5
+  qz: -0.5
+  # Translation
+  tx: 0.05
+  ty: 0.0
+  tz: 0.02
+
+# Time offset (camera timestamp - IMU timestamp)
+# Positive means camera images are timestamped later than IMU
+# Typically needs calibration, start with 0 and refine
+timeshift_cam_imu: 0.0  # seconds
+
+# Calibration metadata
+calibration:
+  date: "2024-01-01"
+  method: "kalibr"
+  reprojection_error_px: 0.0
+  notes: "PLACEHOLDER - CALIBRATE BEFORE USE"

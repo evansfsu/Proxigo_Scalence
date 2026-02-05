@@ -1,0 +1,72 @@
+# Arducam IMX477 HQ Camera Configuration
+# 12.3MP 1/2.3" Sony IMX477 with 6mm CS Lens
+# https://www.arducam.com/arducam-high-quality-ir-cut-camera-for-jetson-nano-xavier-nx-12-3mp-1-2-3-inch-imx477-hq-camera-module-with-6mm-cs-lens.html
+
+camera:
+  # Device settings
+  device: "/dev/video0"
+  driver: "v4l2"
+  
+  # Resolution for VIO (lower for performance)
+  # Full resolution: 4056 x 3040 @ 10fps
+  # 1080p: 1920 x 1080 @ 60fps
+  # 720p: 1280 x 720 @ 120fps
+  width: 1920
+  height: 1080
+  fps: 30  # Balance between VIO quality and CPU load
+  
+  # Pixel format
+  pixel_format: "GREY"  # Grayscale for VIO, use "YUYV" or "MJPG" for color
+  
+  # Auto exposure
+  auto_exposure: true
+  exposure_time_us: 10000  # Manual exposure if auto disabled
+  
+  # Gain
+  auto_gain: true
+  gain: 1.0  # Manual gain if auto disabled
+  
+  # White balance (for color mode)
+  auto_white_balance: true
+
+# Intrinsic parameters (MUST BE CALIBRATED)
+# These are placeholder values - run calibration for your specific camera+lens combo
+intrinsics:
+  model: "pinhole"
+  fx: 1200.0  # Focal length x (pixels)
+  fy: 1200.0  # Focal length y (pixels)
+  cx: 960.0   # Principal point x (pixels)
+  cy: 540.0   # Principal point y (pixels)
+  
+  # Distortion model: radtan (radial-tangential)
+  distortion_model: "radtan"
+  k1: 0.0     # Radial distortion 1
+  k2: 0.0     # Radial distortion 2
+  p1: 0.0     # Tangential distortion 1
+  p2: 0.0     # Tangential distortion 2
+  k3: 0.0     # Radial distortion 3 (optional)
+
+# Lens specifications (6mm CS lens)
+lens:
+  focal_length_mm: 6.0
+  aperture: "f/1.2"
+  fov_horizontal_deg: 63  # Approximate for 1/2.3" sensor
+  fov_vertical_deg: 50
+  fov_diagonal_deg: 75
+
+# Sensor specifications
+sensor:
+  name: "Sony IMX477"
+  type: "CMOS"
+  size: "1/2.3 inch"
+  pixel_size_um: 1.55
+  resolution_full: [4056, 3040]
+  dynamic_range_db: 70
+
+# ROS2 node configuration
+ros2:
+  node_name: "arducam_camera"
+  image_topic: "/vio/camera/image_raw"
+  camera_info_topic: "/vio/camera/camera_info"
+  frame_id: "camera_optical_frame"
+  use_image_transport: true

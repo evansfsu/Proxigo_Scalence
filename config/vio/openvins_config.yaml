@@ -1,0 +1,224 @@
+# OpenVINS Configuration for Proxigo Scalence
+# Visual-Inertial Navigation System Parameters
+#
+# Reference: https://docs.openvins.com/
+
+# ============================================================
+# CAMERA CONFIGURATION
+# ============================================================
+cam0:
+  # Camera model (pinhole, kannalabrandt)
+  cam_model: "pinhole"
+  
+  # Distortion model (none, radtan, equidist, kannalabrandt)
+  dist_model: "radtan"
+  
+  # Resolution (width, height)
+  resolution: [1920, 1080]
+  
+  # Intrinsics [fx, fy, cx, cy]
+  # MUST BE CALIBRATED - these are placeholders
+  intrinsics: [1200.0, 1200.0, 960.0, 540.0]
+  
+  # Distortion coefficients [k1, k2, p1, p2]
+  # MUST BE CALIBRATED - these are placeholders
+  distortion_coeffs: [0.0, 0.0, 0.0, 0.0]
+  
+  # Extrinsics T_cam_imu (cam w.r.t. imu, loaded from separate file)
+  extrinsics_file: "camera_imu_extrinsics.yaml"
+
+# ============================================================
+# IMU CONFIGURATION
+# ============================================================
+imu0:
+  # IMU topic
+  topic: "/vio/imu/data"
+  
+  # IMU rate (Hz) - should match actual sensor rate
+  rate: 400
+  
+  # Noise parameters (MUST BE CALIBRATED for your IMU)
+  # These values are typical for MEMS IMUs
+  
+  # Accelerometer noise density (m/s²/√Hz)
+  accelerometer_noise_density: 0.002
+  
+  # Accelerometer random walk (m/s³/√Hz)
+  accelerometer_random_walk: 0.0002
+  
+  # Gyroscope noise density (rad/s/√Hz)
+  gyroscope_noise_density: 0.00016
+  
+  # Gyroscope random walk (rad/s²/√Hz)
+  gyroscope_random_walk: 0.000022
+  
+  # G-sensitivity (optional, for high-precision IMUs)
+  use_g_sensitivity: false
+
+# ============================================================
+# TIME SYNCHRONIZATION
+# ============================================================
+time:
+  # Camera-IMU time offset (camera_time = imu_time + offset)
+  # Positive if camera timestamps are delayed
+  cam_imu_offset: 0.0  # seconds
+  
+  # Enable online time offset calibration
+  calib_cam_timeoffset: true
+  
+  # Time offset calibration noise
+  calib_cam_timeoffset_noise: 0.001
+
+# ============================================================
+# FEATURE TRACKING
+# ============================================================
+tracking:
+  # Number of features to track
+  num_pts: 200
+  
+  # FAST detector threshold
+  fast_threshold: 20
+  
+  # Feature grid (features distributed across grid cells)
+  grid_x: 5
+  grid_y: 5
+  
+  # Minimum pixel distance between features
+  min_px_dist: 15
+  
+  # KLT tracking parameters
+  klt_win_size: 21
+  klt_pyr_levels: 5
+  
+  # Feature histogram equalization
+  histogram_equalize: true
+  
+  # Downsample factor for tracking (1 = no downsampling)
+  downsample_factor: 1
+
+# ============================================================
+# STATE ESTIMATION
+# ============================================================
+estimation:
+  # Use First-Estimate Jacobians (improves consistency)
+  use_fej: true
+  
+  # Use IMU averaging (improves accuracy)
+  use_imuavg: true
+  
+  # Use RK4 integration (vs Euler)
+  use_rk4int: true
+  
+  # Maximum clone states in sliding window
+  max_clones: 11
+  
+  # Maximum SLAM features in state
+  max_slam: 50
+  
+  # Maximum ARUCO features
+  max_aruco: 1024
+  
+  # Feature representation
+  # 0: GLOBAL_3D
+  # 1: GLOBAL_FULL_INVERSE_DEPTH
+  # 2: ANCHORED_3D
+  # 3: ANCHORED_FULL_INVERSE_DEPTH
+  # 4: ANCHORED_MSCKF_INVERSE_DEPTH
+  # 5: ANCHORED_INVERSE_DEPTH_SINGLE
+  feat_rep_msckf: 5  # ANCHORED_INVERSE_DEPTH_SINGLE
+  feat_rep_slam: 5
+  feat_rep_aruco: 5
+
+# ============================================================
+# CALIBRATION
+# ============================================================
+calibration:
+  # Online camera intrinsics calibration
+  calib_cam_intrinsics: false
+  
+  # Online camera extrinsics calibration
+  calib_cam_extrinsics: false
+  
+  # Online IMU intrinsics calibration
+  calib_imu_intrinsics: false
+  
+  # Camera intrinsics calibration noise
+  calib_cam_intrinsics_noise: 0.01
+  
+  # Camera extrinsics calibration noise
+  calib_cam_extrinsics_noise: 0.001
+
+# ============================================================
+# INITIALIZATION
+# ============================================================
+init:
+  # Initialization mode
+  # "STATIC" - stationary initialization
+  # "DYNAMIC" - moving initialization
+  init_mode: "STATIC"
+  
+  # Static initialization window (seconds)
+  init_window_time: 2.0
+  
+  # Static initialization IMU threshold
+  init_imu_thresh: 0.5
+  
+  # Dynamic initialization settings
+  init_dyn_use: false
+  init_dyn_mle_opt_calib: false
+  init_dyn_mle_max_iter: 50
+  init_dyn_mle_max_time: 0.5
+  init_dyn_mle_max_threads: 6
+  init_dyn_num_pose: 6
+  init_dyn_min_deg: 10.0
+
+# ============================================================
+# ZERO VELOCITY UPDATE
+# ============================================================
+zupt:
+  # Enable zero velocity updates
+  try_zupt: true
+  
+  # ZUPT threshold (IMU magnitude)
+  zupt_max_velocity: 0.1
+  
+  # ZUPT noise
+  zupt_noise_multiplier: 10
+  
+  # ZUPT chi2 threshold
+  zupt_chi2_multipler: 0
+
+# ============================================================
+# OUTPUT
+# ============================================================
+output:
+  # Publish TF transforms
+  publish_tf: true
+  
+  # Frame IDs
+  map_frame: "map"
+  odom_frame: "odom"
+  imu_frame: "imu"
+  
+  # Publish feature tracks
+  publish_features: true
+  
+  # Publish active features
+  publish_active_features: true
+  
+  # Save trajectory to file
+  save_trajectory: true
+  trajectory_file: "/ros2_ws/logs/trajectory.csv"
+
+# ============================================================
+# DEBUG
+# ============================================================
+debug:
+  # Verbosity level (0-5)
+  verbosity: 2
+  
+  # Record timing statistics
+  record_timing: true
+  
+  # Visualize features
+  visualize_features: false

@@ -1,0 +1,5 @@
+# Satellite regions directory
+# Each subdirectory represents a mission region with:
+#   - metadata.json
+#   - satellite.tif
+#   - features.pkl

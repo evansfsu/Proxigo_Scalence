@@ -1,0 +1,44 @@
+{
+  "region_id": "region_39_6780_n75_7500",
+  "name": "Satellite imagery for region_39_6780_n75_7500",
+  "created": "2026-02-04T11:41:24.024010",
+  "source": "ESRI World Imagery",
+  "center": {
+    "latitude": 39.678,
+    "longitude": -75.75
+  },
+  "bounds": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [
+          -75.75292635297113,
+          39.67574774774774
+        ],
+        [
+          -75.75292635297113,
+          39.68025225225225
+        ],
+        [
+          -75.74707364702887,
+          39.68025225225225
+        ],
+        [
+          -75.74707364702887,
+          39.67574774774774
+        ],
+        [
+          -75.75292635297113,
+          39.67574774774774
+        ]
+      ]
+    ]
+  },
+  "imagery": {
+    "resolution_m": 0.9192087092366366,
+    "width_pixels": 1280,
+    "height_pixels": 1280,
+    "file": "satellite.png"
+  },
+  "coverage_m": 500.0
+}

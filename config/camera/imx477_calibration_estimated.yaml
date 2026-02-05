@@ -1,0 +1,112 @@
+# Arducam IMX477 HQ Camera - Estimated Calibration
+# Based on sensor datasheet and 6mm CS lens specifications
+#
+# ============================================================
+# ⚠️  IMPORTANT: These are ESTIMATED values for development!
+# ⚠️  You MUST recalibrate with actual hardware before flight!
+# ============================================================
+#
+# Sensor: Sony IMX477 (12.3MP, 1/2.3" format)
+# Lens: 6mm CS-mount lens, f/1.2
+# Resolution used: 1920x1080 (for VIO, not full 4056x3040)
+
+# Camera Model
+camera_model: pinhole
+distortion_model: radtan
+
+# Image dimensions
+image_width: 1920
+image_height: 1080
+
+# ============================================================
+# INTRINSIC PARAMETERS (Estimated)
+# ============================================================
+# 
+# Calculations based on:
+# - Sensor size: 7.9mm x 4.4mm (1/2.3" diagonal ~7.7mm)
+# - Pixel size: 1.55μm
+# - Focal length: 6mm
+# - Resolution: 1920x1080 (cropped from center)
+#
+# Focal length in pixels = (focal_length_mm / pixel_size_mm) * (used_resolution / sensor_resolution)
+# For 1920x1080 from 4056x3040:
+#   Scale factor = 1920/4056 ≈ 0.473
+#   fx = 6mm / 0.00155mm * 0.473 ≈ 1832 pixels (at full res: 3871)
+#   
+# Adjusted for 1920x1080:
+#   fx ≈ fy ≈ 1100-1300 pixels (typical range)
+
+intrinsics:
+  # Focal lengths (pixels)
+  fx: 1200.0
+  fy: 1200.0
+  
+  # Principal point (image center)
+  cx: 960.0   # image_width / 2
+  cy: 540.0   # image_height / 2
+
+# Distortion coefficients (radial-tangential model)
+# Estimated low distortion for quality lens
+distortion_coefficients:
+  k1: -0.05    # Radial distortion (barrel/pincushion)
+  k2: 0.01     # Higher-order radial
+  p1: 0.0      # Tangential (decentering)
+  p2: 0.0      # Tangential
+  k3: 0.0      # Higher-order radial (often negligible)
+
+# ============================================================
+# LENS SPECIFICATIONS (from datasheet)
+# ============================================================
+lens:
+  focal_length_mm: 6.0
+  aperture: "f/1.2"
+  mount: "CS"
+  
+  # Field of View (calculated)
+  # FOV = 2 * atan(sensor_dimension / (2 * focal_length))
+  fov_horizontal_deg: 63.0   # 2 * atan(7.9 / 12) ≈ 63°
+  fov_vertical_deg: 37.0     # 2 * atan(4.4 / 12) ≈ 37°
+  fov_diagonal_deg: 73.0
+
+# ============================================================
+# SENSOR SPECIFICATIONS (from Sony IMX477 datasheet)
+# ============================================================
+sensor:
+  model: "Sony IMX477"
+  format: "1/2.3 inch"
+  
+  # Physical dimensions
+  width_mm: 7.9
+  height_mm: 4.4
+  diagonal_mm: 9.04
+  
+  # Pixel specifications
+  pixel_size_um: 1.55
+  resolution_full: [4056, 3040]
+  resolution_used: [1920, 1080]
+  
+  # Performance
+  dynamic_range_db: 70
+  max_fps_full: 10
+  max_fps_1080p: 60
+
+# ============================================================
+# NOTES FOR ACTUAL CALIBRATION
+# ============================================================
+# To calibrate with actual hardware:
+#
+# 1. Print a calibration pattern:
+#    - Checkerboard: 9x6 inner corners, 25mm squares
+#    - Or ChArUco board for better accuracy
+#
+# 2. Capture calibration images:
+#    - 20-30 images from different angles
+#    - Cover entire field of view
+#    - Vary distance (0.5m to 2m)
+#
+# 3. Run calibration:
+#    ros2 run camera_calibration cameracalibrator \
+#      --size 9x6 --square 0.025 \
+#      --camera /vio/camera/image_raw
+#
+# 4. Expected reprojection error: < 0.5 pixels

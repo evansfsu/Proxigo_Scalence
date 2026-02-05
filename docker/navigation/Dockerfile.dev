@@ -1,0 +1,27 @@
+# Proxigo Scalence - Navigation Development Container (x86_64)
+# MAVROS2 + PX4 interface for development
+#
+# Build: docker build -t proxigo/navigation:dev -f docker/navigation/Dockerfile.dev .
+
+FROM proxigo/ros2-base:dev
+
+# Install MAVROS2 and dependencies
+RUN apt-get update && apt-get install -y \
+    ros-humble-mavros \
+    ros-humble-mavros-extras \
+    ros-humble-mavros-msgs \
+    ros-humble-geographic-msgs \
+    ros-humble-geodesy \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install GeographicLib datasets (required for MAVROS)
+RUN /opt/ros/humble/lib/mavros/install_geographiclib_datasets.sh || echo "GeographicLib datasets installation skipped"
+
+# Create workspace directories
+RUN mkdir -p /ros2_ws/logs
+
+# Set environment
+ENV ROS_DOMAIN_ID=0
+
+ENTRYPOINT ["/ros2_entrypoint.sh"]
+CMD ["bash"]

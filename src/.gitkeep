@@ -1,0 +1,8 @@
+# Source code directory
+# ROS2 packages will be developed here
+#
+# Planned packages:
+#   - vio_core: VIO interface and bridge
+#   - satellite_matching: Aerial-to-satellite matching
+#   - state_fusion: VIO + satellite fusion
+#   - navigation: Mission planning and control

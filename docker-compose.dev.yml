@@ -1,0 +1,127 @@
+# Proxigo Scalence - Development Docker Compose
+# For development on Windows or without hardware
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml build
+#   docker compose -f docker-compose.dev.yml up dev_shell
+#   docker compose -f docker-compose.dev.yml --profile simulation up
+
+services:
+  # ===========================================================
+  # Development Shell - Main development container
+  # ===========================================================
+  dev_shell:
+    image: proxigo/ros2-base:dev
+    build:
+      context: .
+      dockerfile: docker/base/Dockerfile.dev
+    container_name: proxigo_dev
+    network_mode: host
+    environment:
+      - ROS_DOMAIN_ID=0
+      - DISPLAY=${DISPLAY:-:0}
+    volumes:
+      - ./src:/ros2_ws/src:rw
+      - ./config:/ros2_ws/config:rw
+      - ./satellite_data:/satellite_data:rw
+      - ./logs:/ros2_ws/logs:rw
+      - ./test_data:/test_data:rw
+      - ./scripts:/ros2_ws/scripts:ro
+    working_dir: /ros2_ws
+    command: bash
+    stdin_open: true
+    tty: true
+
+  # ===========================================================
+  # PX4 SITL - Software-in-the-Loop Simulation
+  # ===========================================================
+  px4_sitl:
+    image: px4io/px4-dev-simulation-jammy:latest
+    container_name: px4_sitl
+    network_mode: host
+    environment:
+      - PX4_SIM_HOST_ADDR=localhost
+      - PX4_HOME_LAT=39.678123
+      - PX4_HOME_LON=-75.750456
+      - PX4_HOME_ALT=50.0
+    working_dir: /root/PX4-Autopilot
+    command: >
+      bash -c "
+        cd /root/PX4-Autopilot &&
+        make px4_sitl_default none_iris
+      "
+    profiles:
+      - simulation
+    stdin_open: true
+    tty: true
+
+  # ===========================================================
+  # VIO Core (Development Mode)
+  # ===========================================================
+  vio_core_dev:
+    image: proxigo/vio-core:dev
+    build:
+      context: .
+      dockerfile: docker/vio_core/Dockerfile.dev
+    container_name: vio_core_dev
+    network_mode: host
+    environment:
+      - ROS_DOMAIN_ID=0
+      - SIM_MODE=true
+    volumes:
+      - ./src:/ros2_ws/src_custom:rw
+      - ./config:/ros2_ws/config:ro
+      - ./test_data:/test_data:ro
+      - ./logs:/ros2_ws/logs:rw
+    command: bash
+    stdin_open: true
+    tty: true
+    profiles:
+      - vio
+
+  # ===========================================================
+  # Navigation (Development Mode)
+  # ===========================================================
+  navigation_dev:
+    image: proxigo/navigation:dev
+    build:
+      context: .
+      dockerfile: docker/navigation/Dockerfile.dev
+    container_name: navigation_dev
+    network_mode: host
+    environment:
+      - ROS_DOMAIN_ID=0
+    volumes:
+      - ./src:/ros2_ws/src_custom:rw
+      - ./config:/ros2_ws/config:ro
+      - ./logs:/ros2_ws/logs:rw
+    command: >
+      bash -c "
+        source /opt/ros/humble/setup.bash &&
+        ros2 launch mavros px4.launch.py fcu_url:=udp://:14540@localhost:14557
+      "
+    depends_on:
+      - px4_sitl
+    profiles:
+      - simulation
+
+  # ===========================================================
+  # ROS2 Bag Playback (for testing with recorded data)
+  # ===========================================================
+  bag_player:
+    image: ros:humble
+    container_name: bag_player
+    network_mode: host
+    environment:
+      - ROS_DOMAIN_ID=0
+    volumes:
+      - ./test_data:/test_data:ro
+    command: >
+      bash -c "
+        source /opt/ros/humble/setup.bash &&
+        ros2 bag play /test_data/sample.db3 --loop
+      "
+    profiles:
+      - playback
+    stdin_open: true
+    tty: true

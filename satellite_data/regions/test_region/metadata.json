@@ -1,0 +1,51 @@
+{
+  "region_id": "test_region",
+  "name": "Test Region (Synthetic)",
+  "created": "2026-02-04T11:14:46.085829",
+  "source_file": "synthetic",
+  "note": "This is synthetic test data for development",
+  "bounds": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [
+          -75.75633835294117,
+          39.6736184954955
+        ],
+        [
+          -75.75633835294117,
+          39.6826275045045
+        ],
+        [
+          -75.74457364705883,
+          39.6826275045045
+        ],
+        [
+          -75.74457364705883,
+          39.6736184954955
+        ],
+        [
+          -75.75633835294117,
+          39.6736184954955
+        ]
+      ]
+    ]
+  },
+  "center": {
+    "latitude": 39.678123,
+    "longitude": -75.750456
+  },
+  "imagery": {
+    "resolution_m": 0.5,
+    "width_pixels": 2000,
+    "height_pixels": 2000,
+    "file": "satellite_synthetic.png"
+  },
+  "altitudes": [
+    50,
+    100,
+    200,
+    400
+  ],
+  "total_features": 772
+}

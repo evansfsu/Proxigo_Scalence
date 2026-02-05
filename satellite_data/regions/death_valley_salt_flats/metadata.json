@@ -1,0 +1,44 @@
+{
+  "region_id": "death_valley_salt_flats",
+  "name": "Satellite imagery for death_valley_salt_flats",
+  "created": "2026-02-04T16:34:06.735311",
+  "source": "ESRI World Imagery",
+  "center": {
+    "latitude": 36.2291,
+    "longitude": -116.8325
+  },
+  "bounds": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [
+          -116.83808414094788,
+          36.2245954954955
+        ],
+        [
+          -116.83808414094788,
+          36.233604504504505
+        ],
+        [
+          -116.82691585905211,
+          36.233604504504505
+        ],
+        [
+          -116.82691585905211,
+          36.2245954954955
+        ],
+        [
+          -116.83808414094788,
+          36.2245954954955
+        ]
+      ]
+    ]
+  },
+  "imagery": {
+    "resolution_m": 0.481708675059935,
+    "width_pixels": 2816,
+    "height_pixels": 2816,
+    "file": "satellite.png"
+  },
+  "coverage_m": 1000.0
+}

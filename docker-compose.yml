@@ -1,0 +1,143 @@
+# Proxigo Scalence - Docker Compose Configuration
+# Production deployment on NVIDIA Orin Nano
+#
+# Usage:
+#   docker-compose up -d          # Start all services
+#   docker-compose logs -f        # View logs
+#   docker-compose down           # Stop all services
+#
+# With specific profiles:
+#   docker-compose --profile debug up -d   # Include RViz
+#   docker-compose --profile monitoring up # Include Prometheus/Grafana
+
+services:
+  # ===========================================================
+  # VIO Core - Visual Inertial Odometry
+  # ===========================================================
+  vio_core:
+    image: proxigo/vio-core:latest
+    container_name: vio_core
+    build:
+      context: .
+      dockerfile: docker/vio_core/Dockerfile
+    runtime: nvidia
+    privileged: true
+    network_mode: host
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - ROS_DOMAIN_ID=0
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - /dev:/dev:rw
+      - ./config:/ros2_ws/config:ro
+      - ./logs/vio:/ros2_ws/logs:rw
+    devices:
+      - /dev/video0:/dev/video0  # Arducam camera
+    depends_on:
+      - satellite_match
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ros2", "topic", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ===========================================================
+  # Navigation - MAVROS2 + PX4 Interface
+  # ===========================================================
+  navigation:
+    image: proxigo/navigation:latest
+    container_name: navigation
+    build:
+      context: .
+      dockerfile: docker/navigation/Dockerfile
+    network_mode: host
+    privileged: true
+    environment:
+      - ROS_DOMAIN_ID=0
+    volumes:
+      - ./config:/ros2_ws/config:ro
+      - ./logs/nav:/ros2_ws/logs:rw
+      - /dev:/dev:rw
+    devices:
+      - /dev/ttyTHS1:/dev/ttyTHS1  # UART to Pixhawk
+    depends_on:
+      - vio_core
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ros2", "topic", "echo", "/mavros/state", "--once"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ===========================================================
+  # Satellite Matching - Aerial-to-Satellite Image Matching
+  # ===========================================================
+  satellite_match:
+    image: proxigo/satellite-match:latest
+    container_name: satellite_match
+    build:
+      context: .
+      dockerfile: docker/satellite_match/Dockerfile
+    runtime: nvidia
+    network_mode: host
+    environment:
+      - ROS_DOMAIN_ID=0
+      - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      - ./config:/ros2_ws/config:ro
+      - ./satellite_data:/satellite_data:ro
+      - ./logs/sat:/ros2_ws/logs:rw
+    restart: unless-stopped
+
+  # ===========================================================
+  # Visualization (Debug Profile)
+  # ===========================================================
+  rviz:
+    image: proxigo/ros2-jetson-base:latest
+    container_name: rviz
+    network_mode: host
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - ROS_DOMAIN_ID=0
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ./config/rviz:/rviz_config:ro
+    command: ros2 run rviz2 rviz2
+    profiles:
+      - debug
+
+  # ===========================================================
+  # Data Recording (Debug Profile)
+  # ===========================================================
+  recorder:
+    image: proxigo/ros2-jetson-base:latest
+    container_name: recorder
+    network_mode: host
+    environment:
+      - ROS_DOMAIN_ID=0
+    volumes:
+      - ./recordings:/recordings:rw
+    command: >
+      ros2 bag record -a -o /recordings/flight_data
+    profiles:
+      - debug
+
+# ===========================================================
+# Volumes
+# ===========================================================
+volumes:
+  logs:
+    driver: local
+  recordings:
+    driver: local
+
+# ===========================================================
+# Networks
+# ===========================================================
+# Using host network for ROS2 DDS discovery
+# No custom network needed

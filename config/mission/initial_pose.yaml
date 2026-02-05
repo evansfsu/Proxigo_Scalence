@@ -1,0 +1,29 @@
+# Initial Position Configuration for Proxigo Scalence
+# This file defines the starting position for VIO and satellite matching
+
+# ============================================================
+# MISSION: Death Valley Salt Flats
+# ============================================================
+
+# Region identification
+region_id: "death_valley_salt_flats"
+
+# Initial GPS coordinates (WGS84)
+# Badwater Basin - lowest point in North America
+latitude: 36.2291
+longitude: -116.8325
+altitude: -86.0  # meters below sea level (Badwater Basin)
+
+# Initial heading (degrees from North, clockwise)
+heading: 0.0
+
+# Coordinate reference
+datum: "WGS84"
+epsg: 4326
+
+# Mission metadata
+mission:
+  name: "Death Valley Test Flight"
+  description: "VIO + Satellite matching test over salt flats"
+  terrain_type: "salt_flat"
+  expected_visibility: "excellent"
