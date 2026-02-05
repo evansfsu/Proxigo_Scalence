@@ -1,0 +1,75 @@
+# Proxigo UAV Simulation Stack
+# Works on: Windows (via WSL2), Linux, Nvidia Orin Nano
+#
+# Usage:
+#   docker compose -f docker/simulation/docker-compose.simulation.yml up
+#
+# Environment variables (set before running):
+#   DISPLAY          - X11 display (auto-detected)
+#   PX4_HOME_LAT     - Home latitude (default: Death Valley)
+#   PX4_HOME_LON     - Home longitude
+#   PX4_HOME_ALT     - Home altitude
+#   PX4_VEHICLE      - Vehicle type: advanced_plane, standard_vtol, x500
+
+version: '3.8'
+
+services:
+  # PX4 SITL + Gazebo Harmonic
+  px4-sitl:
+    image: proxigo/px4-gazebo:harmonic
+    container_name: px4_sitl
+    network_mode: host
+    privileged: true
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - PX4_HOME_LAT=${PX4_HOME_LAT:-36.2329}
+      - PX4_HOME_LON=${PX4_HOME_LON:--116.8276}
+      - PX4_HOME_ALT=${PX4_HOME_ALT:-0}
+      - PX4_SIM_MODEL=gz_${PX4_VEHICLE:-advanced_plane}
+      - GZ_SIM_RESOURCE_PATH=/root/PX4-Autopilot/Tools/simulation/gz/models:/root/PX4-Autopilot/Tools/simulation/gz/worlds
+      - LIBGL_ALWAYS_SOFTWARE=${LIBGL_ALWAYS_SOFTWARE:-0}
+      - QT_X11_NO_MITSHM=1
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - px4-build:/root/PX4-Autopilot/build
+      - ../../gazebo_worlds:/gazebo_worlds:ro
+      - ../../config/mission:/mission:ro
+    command: >
+      bash -c "
+        cd /root/PX4-Autopilot &&
+        export PX4_HOME_LAT=${PX4_HOME_LAT:-36.2329} &&
+        export PX4_HOME_LON=${PX4_HOME_LON:--116.8276} &&
+        export PX4_HOME_ALT=${PX4_HOME_ALT:-0} &&
+        make px4_sitl gz_${PX4_VEHICLE:-advanced_plane}
+      "
+    healthcheck:
+      test: ["CMD", "bash", "-c", "pgrep -f px4 > /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+    restart: unless-stopped
+
+  # MAVLink Router - bridges PX4 to QGC and ROS2
+  mavlink-router:
+    image: proxigo/px4-gazebo:harmonic
+    container_name: mavlink_router
+    network_mode: host
+    depends_on:
+      px4-sitl:
+        condition: service_healthy
+    command: >
+      bash -c "
+        pip3 install mavproxy pymavlink --quiet &&
+        sleep 5 &&
+        mavproxy.py 
+          --master=udp:127.0.0.1:18570 
+          --out=udp:0.0.0.0:14550 
+          --out=tcp:0.0.0.0:5760
+          --daemon
+      "
+    restart: unless-stopped
+
+volumes:
+  px4-build:
+    name: px4_build_cache

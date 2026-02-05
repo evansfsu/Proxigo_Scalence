@@ -1,8 +1,14 @@
 <?xml version="1.0" ?>
-<sdf version="1.8">
+<sdf version="1.9">
   <world name="death_valley">
     
-    <!-- Required plugins -->
+    <!-- Physics -->
+    <physics name="1ms" type="ignore">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+    
+    <!-- Plugins -->
     <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
     <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
     <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
@@ -10,95 +16,99 @@
       <render_engine>ogre2</render_engine>
     </plugin>
     <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+    <plugin filename="gz-sim-air-pressure-system" name="gz::sim::systems::AirPressure"/>
     
-    <!-- Camera follow plugin -->
-    <plugin filename="gz-sim-follow-actor-system" name="gz::sim::systems::FollowActor"/>
-
-    <!-- Spherical coordinates for Death Valley -->
+    <!-- Spherical coordinates (Death Valley) -->
     <spherical_coordinates>
       <surface_model>EARTH_WGS84</surface_model>
-      <latitude_deg>36.2291</latitude_deg>
-      <longitude_deg>-116.8325</longitude_deg>
-      <elevation>-85</elevation>
+      <world_frame_orientation>ENU</world_frame_orientation>
+      <latitude_deg>36.2329</latitude_deg>
+      <longitude_deg>-116.8276</longitude_deg>
+      <elevation>0</elevation>
       <heading_deg>0</heading_deg>
     </spherical_coordinates>
-
-    <!-- Sunlight -->
+    
+    <!-- Lighting -->
     <light type="directional" name="sun">
       <cast_shadows>true</cast_shadows>
-      <pose>0 0 500 0 0 0</pose>
-      <diffuse>1.0 1.0 0.95 1</diffuse>
-      <specular>0.5 0.5 0.5 1</specular>
-      <attenuation>
-        <range>2000</range>
-        <constant>0.9</constant>
-        <linear>0.001</linear>
-        <quadratic>0.0001</quadratic>
-      </attenuation>
-      <direction>-0.3 0.4 -0.9</direction>
-    </light>
-
-    <!-- Ambient light -->
-    <light type="point" name="ambient">
       <pose>0 0 100 0 0 0</pose>
-      <diffuse>0.3 0.3 0.35 1</diffuse>
-      <specular>0.1 0.1 0.1 1</specular>
-      <attenuation>
-        <range>2000</range>
-        <constant>0.9</constant>
-        <linear>0.0</linear>
-        <quadratic>0.0</quadratic>
-      </attenuation>
+      <diffuse>0.9 0.9 0.8 1</diffuse>
+      <specular>0.3 0.3 0.2 1</specular>
+      <direction>-0.5 0.1 -0.9</direction>
     </light>
-
-    <!-- Sky/atmosphere -->
+    
+    <light type="directional" name="sun2">
+      <cast_shadows>false</cast_shadows>
+      <pose>0 0 100 0 0 0</pose>
+      <diffuse>0.3 0.3 0.25 1</diffuse>
+      <specular>0.1 0.1 0.1 1</specular>
+      <direction>0.5 0.5 -0.9</direction>
+    </light>
+    
+    <!-- Sky -->
     <scene>
-      <ambient>0.5 0.5 0.6 1</ambient>
-      <background>0.3 0.5 0.8 1</background>
+      <ambient>0.6 0.6 0.5 1</ambient>
+      <background>0.3 0.6 0.9 1</background>
       <shadows>true</shadows>
     </scene>
-
-    <!-- Ground plane with satellite texture -->
-    <model name="satellite_ground">
+    
+    <!-- Terrain with heightmap -->
+    <model name="death_valley_terrain">
       <static>true</static>
-      <pose>0 0 0 0 0 0</pose>
-      <link name="ground_link">
+      <link name="terrain_link">
+        <collision name="terrain_collision">
+          <geometry>
+            <heightmap>
+              <uri>file:///gazebo_worlds/terrain/death_valley_heightmap.png</uri>
+              <size>2000.0 2000.0 1600</size>
+              <pos>0 0 -100</pos>
+            </heightmap>
+          </geometry>
+        </collision>
+        <visual name="terrain_visual">
+          <geometry>
+            <heightmap>
+              <uri>file:///gazebo_worlds/terrain/death_valley_heightmap.png</uri>
+              <size>2000.0 2000.0 1600</size>
+              <pos>0 0 -100</pos>
+              <texture>
+                <diffuse>file:///gazebo_worlds/terrain/death_valley_satellite.jpg</diffuse>
+                <normal>file:///gazebo_worlds/terrain/flat_normal.png</normal>
+                <size>10</size>
+              </texture>
+            </heightmap>
+          </geometry>
+        </visual>
+      </link>
+    </model>
+    
+    <!-- Flat ground plane as backup -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
         <collision name="collision">
           <geometry>
-            <box>
-              <size>2000 2000 0.1</size>
-            </box>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>5000 5000</size>
+            </plane>
           </geometry>
-          <surface>
-            <friction>
-              <ode>
-                <mu>1.0</mu>
-                <mu2>1.0</mu2>
-              </ode>
-            </friction>
-          </surface>
         </collision>
         <visual name="visual">
           <geometry>
-            <box>
-              <size>2000 2000 0.1</size>
-            </box>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>5000 5000</size>
+            </plane>
           </geometry>
           <material>
-            <ambient>1 1 1 1</ambient>
-            <diffuse>1 1 1 1</diffuse>
+            <ambient>0.8 0.75 0.6 1</ambient>
+            <diffuse>0.8 0.75 0.6 1</diffuse>
             <specular>0.1 0.1 0.1 1</specular>
-            <pbr>
-              <metal>
-                <albedo_map>/gazebo_worlds/satellite_texture.png</albedo_map>
-                <roughness>0.8</roughness>
-                <metalness>0.0</metalness>
-              </metal>
-            </pbr>
           </material>
         </visual>
       </link>
     </model>
-
+    
   </world>
 </sdf>

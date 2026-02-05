@@ -1,0 +1,6 @@
+min_elevation: 14.2682523727417
+max_elevation: 2118.77099609375
+size_meters: 2000.0
+resolution: 257
+center_lat: 36.2329
+center_lon: -116.8276
