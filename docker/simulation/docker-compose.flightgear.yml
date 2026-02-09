@@ -1,0 +1,55 @@
+# Proxigo UAV Simulation - FlightGear (Robust Fixed-Wing & VTOL)
+# FlightGear is excellent for fixed-wing aircraft simulation
+# More robust than jMAVSim, supports fixed-wing and VTOL
+#
+# Usage:
+#   # Fixed-wing (default)
+#   docker compose -f docker/simulation/docker-compose.flightgear.yml up
+#
+#   # VTOL
+#   PX4_VEHICLE=standard_vtol docker compose -f docker/simulation/docker-compose.flightgear.yml up
+
+version: '3.8'
+
+services:
+  # PX4 SITL + FlightGear
+  px4-sitl:
+    image: proxigo/px4-gazebo:harmonic
+    container_name: px4_flightgear
+    privileged: true
+    ports:
+      - "14540:14540/udp"  # Offboard (for MAVProxy)
+      - "14550:14550/udp"  # QGC UDP (forwarded by MAVProxy)
+      - "5760:5760/tcp"    # QGC TCP (forwarded by MAVProxy)
+      - "18570:18570/udp"  # GCS
+      - "5609:5609/udp"    # FlightGear
+    environment:
+      - PX4_HOME_LAT=${PX4_HOME_LAT:-36.2329}
+      - PX4_HOME_LON=${PX4_HOME_LON:--116.8276}
+      - PX4_HOME_ALT=${PX4_HOME_ALT:-50}
+      - PX4_VEHICLE=${PX4_VEHICLE:-advanced_plane}  # advanced_plane or standard_vtol
+      - SYS_AUTOSTART=${SYS_AUTOSTART:-4008}   # 4008=Advanced Plane, 4001=Standard VTOL
+    volumes:
+      - px4-build:/root/PX4-Autopilot/build
+      - ../../config/mission:/mission:ro
+      - ../../scripts:/scripts:ro
+    command: >
+      bash -c "
+        cd /root/PX4-Autopilot &&
+        export PX4_HOME_LAT=${PX4_HOME_LAT:-36.2329} &&
+        export PX4_HOME_LON=${PX4_HOME_LON:--116.8276} &&
+        export PX4_HOME_ALT=${PX4_HOME_ALT:-50} &&
+        export SYS_AUTOSTART=${SYS_AUTOSTART:-4008} &&
+        make px4_sitl flightgear
+      "
+    healthcheck:
+      test: ["CMD", "bash", "-c", "pgrep -f px4 > /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+    restart: unless-stopped
+
+volumes:
+  px4-build:
+    name: px4_build_cache

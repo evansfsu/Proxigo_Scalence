@@ -1,15 +1,13 @@
-# Proxigo UAV Simulation Stack
-# Works on: Windows (via WSL2), Linux, Nvidia Orin Nano
+# Proxigo UAV Simulation - Gazebo Harmonic (Full 3D Visualization)
+# Fixed-Wing and VTOL simulation with full 3D visualization
+# Requires X11 display (VcXsrv on Windows)
 #
 # Usage:
-#   docker compose -f docker/simulation/docker-compose.simulation.yml up
+#   # Fixed-wing (default)
+#   docker compose -f docker/simulation/docker-compose.gazebo.yml up
 #
-# Environment variables (set before running):
-#   DISPLAY          - X11 display (auto-detected)
-#   PX4_HOME_LAT     - Home latitude (default: Death Valley)
-#   PX4_HOME_LON     - Home longitude
-#   PX4_HOME_ALT     - Home altitude
-#   PX4_VEHICLE      - Vehicle type: advanced_plane, standard_vtol, x500
+#   # VTOL
+#   PX4_VEHICLE=standard_vtol docker compose -f docker/simulation/docker-compose.gazebo.yml up
 
 version: '3.8'
 
@@ -17,9 +15,7 @@ services:
   # PX4 SITL + Gazebo Harmonic
   px4-sitl:
     image: proxigo/px4-gazebo:harmonic
-    container_name: px4_sitl
-    # Use bridge network with port mapping for WSL2/Windows compatibility
-    # (host network mode doesn't work properly on WSL2)
+    container_name: px4_gazebo
     privileged: true
     ports:
       - "14540:14540/udp"  # Offboard (for MAVProxy)
@@ -30,8 +26,10 @@ services:
       - DISPLAY=${DISPLAY:-:0}
       - PX4_HOME_LAT=${PX4_HOME_LAT:-36.2329}
       - PX4_HOME_LON=${PX4_HOME_LON:--116.8276}
-      - PX4_HOME_ALT=${PX4_HOME_ALT:-0}
+      - PX4_HOME_ALT=${PX4_HOME_ALT:-50}
+      - PX4_VEHICLE=${PX4_VEHICLE:-advanced_plane}  # advanced_plane or standard_vtol
       - PX4_SIM_MODEL=gz_${PX4_VEHICLE:-advanced_plane}
+      - SYS_AUTOSTART=${SYS_AUTOSTART:-4008}   # 4008=Advanced Plane, 4001=Standard VTOL
       - GZ_SIM_RESOURCE_PATH=/root/PX4-Autopilot/Tools/simulation/gz/models:/root/PX4-Autopilot/Tools/simulation/gz/worlds
       - LIBGL_ALWAYS_SOFTWARE=${LIBGL_ALWAYS_SOFTWARE:-0}
       - QT_X11_NO_MITSHM=1
@@ -41,13 +39,13 @@ services:
       - ../../gazebo_worlds:/gazebo_worlds:ro
       - ../../config/mission:/mission:ro
       - ../../scripts:/scripts:ro
-      - ../../scripts:/scripts:ro
     command: >
       bash -c "
         cd /root/PX4-Autopilot &&
         export PX4_HOME_LAT=${PX4_HOME_LAT:-36.2329} &&
         export PX4_HOME_LON=${PX4_HOME_LON:--116.8276} &&
-        export PX4_HOME_ALT=${PX4_HOME_ALT:-0} &&
+        export PX4_HOME_ALT=${PX4_HOME_ALT:-50} &&
+        export SYS_AUTOSTART=${SYS_AUTOSTART:-4008} &&
         make px4_sitl gz_${PX4_VEHICLE:-advanced_plane}
       "
     healthcheck:
@@ -57,7 +55,6 @@ services:
       retries: 30
       start_period: 120s
     restart: unless-stopped
-
 
 volumes:
   px4-build:

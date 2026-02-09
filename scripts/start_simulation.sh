@@ -211,42 +211,64 @@ start_simulation() {
         log_warn "Timeout waiting for PX4. Checking status..."
         docker logs px4_sitl 2>&1 | tail -20
     fi
+    
+    # Start MAVProxy bridge (proven working method from start_simulation.ps1)
+    log_info "Starting MAVProxy bridge for QGroundControl..."
+    
+    # Install MAVProxy first
+    docker exec px4_sitl bash -c "
+        pip3 install mavproxy pymavlink --quiet 2>/dev/null || {
+            apt-get update -qq > /dev/null 2>&1 &&
+            apt-get install -y python3-pip --no-install-recommends -qq > /dev/null 2>&1 &&
+            pip3 install mavproxy pymavlink --quiet 2>/dev/null
+        }
+    " > /dev/null 2>&1 || log_warn "MAVProxy installation may have failed"
+    
+    # Start MAVProxy with proper forwarding
+    # Use 0.0.0.0 to bind to all interfaces (works for WSL2 and Linux)
+    docker exec -d px4_sitl bash -c "
+        mavproxy.py --master=udp:127.0.0.1:14540 --out=udp:0.0.0.0:14550 --out=tcpin:0.0.0.0:5760 --daemon
+    " || log_warn "MAVProxy start may have failed"
+    
+    sleep 5  # Give MAVProxy more time to start
+    
+    # Verify MAVProxy is running
+    if docker exec px4_sitl bash -c "pgrep -f mavproxy > /dev/null" 2>/dev/null; then
+        log_success "MAVProxy bridge is running (14540 -> 14550 UDP, 5760 TCP)"
+    else
+        log_warn "MAVProxy may not be running - QGC connection may not work"
+    fi
+    
+    # Wait a bit more for MAVLink to be fully ready
+    sleep 2
+    
+    # CRITICAL: Set EKF origin IMMEDIATELY after PX4 starts
+    # The EKF origin can only be set ONCE per session (per official docs)
+    # Based on: https://ardupilot.org/dev/docs/mavlink-get-set-home-and-origin.html
+    log_info "Setting EKF origin IMMEDIATELY (can only be set once per session)..."
+    docker exec px4_sitl python3 /scripts/fix_ekf_origin_startup.py ${PX4_HOME_LAT:-36.2329} ${PX4_HOME_LON:--116.8276} ${PX4_HOME_ALT:-0} 2>&1 | grep -E "(SUCCESS|EKF origin|ERROR|Failed)" || log_warn "EKF origin setting may have failed - vehicle position might be wrong"
+    
+    # Also set vehicle position using GPS_INPUT (backup method)
+    log_info "Setting vehicle GPS position via GPS_INPUT messages..."
+    docker exec px4_sitl python3 /scripts/set_vehicle_position.py ${PX4_HOME_LAT:-36.2329} ${PX4_HOME_LON:--116.8276} ${PX4_HOME_ALT:-0} 2>&1 | grep -E "(SUCCESS|Vehicle GPS|ERROR)" || log_warn "Vehicle position setting may have failed"
 }
 
 set_ekf_origin() {
-    log_info "Setting EKF origin to simulation location..."
+    log_info "Setting EKF origin and home position to simulation location..."
     
-    python3 - << EOF
-import sys
-import time
-try:
-    from pymavlink import mavutil
+    # Run the script from inside the container where pymavlink is available
+    docker exec px4_sitl python3 /scripts/set_home_position.py \
+        ${PX4_HOME_LAT:-36.2329} \
+        ${PX4_HOME_LON:--116.8276} \
+        ${PX4_HOME_ALT:-0} > /dev/null 2>&1
     
-    # Try different connection methods
-    for conn in ['tcp:127.0.0.1:5760', 'udp:127.0.0.1:14550']:
-        try:
-            mav = mavutil.mavlink_connection(conn, timeout=5)
-            mav.wait_heartbeat(timeout=10)
-            
-            lat = int($PX4_HOME_LAT * 1e7)
-            lon = int($PX4_HOME_LON * 1e7)
-            alt = int($PX4_HOME_ALT * 1000)
-            
-            mav.mav.set_gps_global_origin_send(mav.target_system, lat, lon, alt)
-            time.sleep(0.5)
-            mav.mav.command_long_send(
-                mav.target_system, mav.target_component,
-                179, 0, 0, 0, 0, 0, $PX4_HOME_LAT, $PX4_HOME_LON, $PX4_HOME_ALT
-            )
-            print(f"EKF origin set via {conn}")
-            sys.exit(0)
-        except Exception as e:
-            continue
-    
-    print("Could not set EKF origin - set manually in QGC")
-except ImportError:
-    print("pymavlink not installed - install with: pip3 install pymavlink")
-EOF
+    if [ $? -eq 0 ]; then
+        log_success "EKF origin set to ${PX4_HOME_LAT:-36.2329}, ${PX4_HOME_LON:--116.8276}"
+    else
+        log_warn "EKF origin not set automatically"
+        log_info "Run manually: docker exec px4_sitl python3 /scripts/set_home_position.py"
+        log_info "Or from host: python3 scripts/set_home_position.py"
+    fi
 }
 
 upload_mission() {
@@ -276,6 +298,15 @@ show_status() {
     echo "QGroundControl Connection:"
     echo "  UDP: udp://127.0.0.1:14550 (auto-detect)"
     echo "  TCP: tcp://127.0.0.1:5760 (manual)"
+    echo ""
+    echo "Auto-Connect Configuration:"
+    echo "  QGC has been configured to auto-connect on startup"
+    echo "  Connections: 'PX4 SITL UDP' and 'PX4 SITL TCP'"
+    echo "  To reconfigure: .\scripts\auto_connect_qgc.ps1 (Windows)"
+    echo ""
+    echo "If QGC shows Zurich location:"
+    echo "  docker exec px4_sitl python3 /scripts/set_home_position.py"
+    echo "  Or: python3 scripts/set_home_position.py"
     
     echo ""
     echo "Commands:"

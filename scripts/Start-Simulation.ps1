@@ -126,24 +126,25 @@ function Install-WSLSetup {
     
     # Install Docker in WSL if not present
     Write-Host "[INFO] Setting up Docker in WSL..." -ForegroundColor Gray
-    wsl -d $defaultDistro bash -c @"
-        if ! command -v docker &> /dev/null; then
-            echo 'Installing Docker...'
-            curl -fsSL https://get.docker.com | sh
-            sudo usermod -aG docker \$USER
-        fi
-        
-        # Start Docker daemon if not running
-        if ! pgrep -x dockerd > /dev/null; then
-            sudo dockerd &
-            sleep 3
-        fi
-        
-        # Install pymavlink
-        pip3 install pymavlink --quiet 2>/dev/null || sudo apt-get install -y python3-pip && pip3 install pymavlink
-        
-        echo 'WSL setup complete!'
-"@
+    $bashScript = @'
+if ! command -v docker &> /dev/null; then
+    echo 'Installing Docker...'
+    curl -fsSL https://get.docker.com | sh
+    sudo usermod -aG docker $USER
+fi
+
+# Start Docker daemon if not running
+if ! pgrep -x dockerd > /dev/null; then
+    sudo dockerd &
+    sleep 3
+fi
+
+# Install pymavlink
+pip3 install pymavlink --quiet 2>/dev/null || (sudo apt-get install -y python3-pip && pip3 install pymavlink)
+
+echo 'WSL setup complete!'
+'@
+    wsl -d $defaultDistro bash -c $bashScript
     
     Write-Host "[OK] WSL2 setup complete!" -ForegroundColor Green
     Write-Host ""
@@ -215,19 +216,8 @@ function Invoke-WSLSimulation {
     $headlessFlag = if ($Headless) { "--headless" } else { "" }
     
     # Build command
-    $wslCmd = @"
-        export DISPLAY=$displayHost`:0
-        export LIBGL_ALWAYS_SOFTWARE=1
-        export PX4_HOME_LAT=$Lat
-        export PX4_HOME_LON=$Lon
-        export PX4_HOME_ALT=$Alt
-        export PX4_VEHICLE=$Vehicle
-        
-        cd /mnt/c/Users/$env:USERNAME/OneDrive/Documents/GitHub/Proxigo_Scalence
-        
-        chmod +x scripts/start_simulation.sh
-        ./scripts/start_simulation.sh $Action $headlessFlag --vehicle $Vehicle --lat $Lat --lon $Lon --alt $Alt
-"@
+    $projectPathWSL = "/mnt/c/Users/$env:USERNAME/OneDrive/Documents/GitHub/Proxigo_Scalence"
+    $wslCmd = "export DISPLAY=$displayHost`:0; export LIBGL_ALWAYS_SOFTWARE=1; export PX4_HOME_LAT=$Lat; export PX4_HOME_LON=$Lon; export PX4_HOME_ALT=$Alt; export PX4_VEHICLE=$Vehicle; cd $projectPathWSL; chmod +x scripts/start_simulation.sh; ./scripts/start_simulation.sh $Action $headlessFlag --vehicle $Vehicle --lat $Lat --lon $Lon --alt $Alt"
     
     Write-Host "[INFO] Running simulation in WSL2..." -ForegroundColor Gray
     wsl bash -c $wslCmd
@@ -324,7 +314,8 @@ if ($Lat -and $Lon) {
 }
 
 Write-Host "[INFO] Vehicle: $Vehicle" -ForegroundColor Gray
-Write-Host "[INFO] Location: $Location ($simLat, $simLon, ${simAlt}m)" -ForegroundColor Gray
+$altStr = "$simAlt" + "m"
+Write-Host "[INFO] Location: $Location ($simLat, $simLon, $altStr)" -ForegroundColor Gray
 Write-Host ""
 
 # Determine action
