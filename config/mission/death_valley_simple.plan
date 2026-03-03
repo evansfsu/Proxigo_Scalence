@@ -97,7 +97,7 @@
                 "type": "SimpleItem"
             }
         ],
-        "plannedHomePosition": [36.2329, -116.8276, 0],
+        "plannedHomePosition": [36.2329, -116.8276, 50],
         "vehicleType": 1,
         "version": 2
     },

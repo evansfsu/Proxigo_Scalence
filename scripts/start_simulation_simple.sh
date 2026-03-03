@@ -39,6 +39,7 @@ fi
 
 docker run -d \
     --name px4_gazebo_plane \
+    --add-host=host.docker.internal:host-gateway \
     -p 5760:5760 \
     -p 14540:14540/udp \
     -p 14550:14550/udp \
@@ -91,14 +92,17 @@ docker exec px4_gazebo_plane pip3 install mavproxy pymavlink --quiet 2>/dev/null
     " 2>/dev/null || echo -e "${YELLOW}  WARNING: MAVProxy installation may have failed${NC}"
 }
 
-# Start MAVProxy to forward from PX4's offboard port
-# For WSL2, use 0.0.0.0 which maps to host via port mapping
-docker exec -d px4_gazebo_plane bash -c "mavproxy.py --master=udp:127.0.0.1:14540 --out=udp:0.0.0.0:14550 --out=tcpin:0.0.0.0:5760 --daemon"
+# Start MAVProxy: PX4 SITL sends GCS telemetry on 18570, not 14540
+# Use 18570 as master so MAVProxy actually receives the stream, then forward to QGC ports
+docker exec px4_gazebo_plane pkill -f mavproxy 2>/dev/null || true
+sleep 2
+# Send UDP to host so QGC on Windows/host can receive (0.0.0.0:14550 stays in container)
+docker exec -d px4_gazebo_plane bash -c "mavproxy.py --master=udp:127.0.0.1:18570 --out=udp:host.docker.internal:14550 --out=tcpin:0.0.0.0:5760 --daemon"
 sleep 5
 
 # Verify MAVProxy is running
 if docker exec px4_gazebo_plane bash -c "ps aux | grep mavproxy | grep -v grep" 2>&1 | grep -q mavproxy; then
-    echo -e "  ${GREEN}MAVProxy forwarding active${NC}"
+    echo -e "  ${GREEN}MAVProxy forwarding active (18570 -> host:14550 UDP, 5760 TCP)${NC}"
 else
     echo -e "  ${YELLOW}WARNING: MAVProxy may not be running${NC}"
 fi
@@ -113,15 +117,14 @@ echo -e "${GREEN}================================================${NC}"
 echo -e "${GREEN}  QGroundControl Connection Options${NC}"
 echo -e "${GREEN}================================================${NC}"
 echo ""
-echo -e "${YELLOW}OPTION 1 - UDP (Try First):${NC}"
-echo "  1. Open QGroundControl"
-echo "  2. Q icon -> Application Settings -> Comm Links"
-echo "  3. Delete all existing links"
-echo "  4. Add new: Type=UDP, Port=14550"
-echo "  5. Connect"
+echo -e "${YELLOW}OPTION 1 - UDP 14550 (Try First):${NC}"
+echo "  QGC -> Application Settings -> Comm Links -> Add: Type=UDP, Listening Port=14550"
 echo ""
-echo -e "${YELLOW}OPTION 2 - TCP (If UDP fails):${NC}"
-echo "  1. Add new: Type=TCP, Host=127.0.0.1, Port=5760"
+echo -e "${YELLOW}OPTION 2 - Direct PX4 GCS (if 14550 fails):${NC}"
+echo "  Add: Type=UDP, Listening Port=18570"
+echo ""
+echo -e "${YELLOW}OPTION 3 - TCP:${NC}"
+echo "  Add: Type=TCP, Host=127.0.0.1, Port=5760"
 echo ""
 echo -e "${YELLOW}Mission file location:${NC}"
 echo "  ${PROJECT_DIR}/config/mission/death_valley_simple.plan"

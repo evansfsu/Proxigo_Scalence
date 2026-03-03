@@ -20,17 +20,17 @@ except ImportError:
         print("Run from container: docker exec px4_sitl python3 /scripts/upload_simple_mission.py")
         sys.exit(1)
 
-# Death Valley center coordinates
+# Death Valley center coordinates (home 50m AMSL so altitudes are above valley floor ~-86m)
 HOME_LAT = 36.2329
 HOME_LON = -116.8276
-HOME_ALT = 0
+HOME_ALT = 50
 
 # Simple mission - all waypoints within ~200m of home
 # Small square pattern around home position
 WAYPOINTS = [
     # Home position (waypoint 0)
-    (0, 16, 1, 1, 0, 0, 0, 0, HOME_LAT, HOME_LON, 0),
-    # Takeoff to 50m
+    (0, 16, 1, 1, 0, 0, 0, 0, HOME_LAT, HOME_LON, HOME_ALT),
+    # Takeoff to 50m above home (100m AMSL)
     (3, 22, 0, 1, 0, 0, 0, 0, HOME_LAT, HOME_LON, 50),
     # Small square pattern - all within 200m
     (3, 16, 0, 1, 0, 0, 0, 0, 36.2340, -116.8276, 100),  # North (~120m)

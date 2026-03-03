@@ -306,6 +306,7 @@ initial_position:
 
 | Product | Technology | Price | Notes |
 |---------|------------|-------|-------|
+| **Theseus** | Visual Positioning System | N/A | Commercial VPS; config install: `curl -fsSL https://packages.theseus.us/install.sh \| sudo bash` |
 | Intel RealSense T265 | Stereo VIO | $199 | Discontinued |
 | ModalAI VOXL 2 | VIO + AI | $850 | Full autonomy stack |
 | Auterion Skynode | VIO + Compute | ~$2000 | Enterprise focus |

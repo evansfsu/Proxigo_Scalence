@@ -113,7 +113,7 @@ Write-Host "  Docker configured in WSL" -ForegroundColor Green
 Write-Host ""
 Write-Host "[3/5] Installing Python dependencies..." -ForegroundColor Yellow
 
-wsl bash -c "pip3 install pymavlink --quiet 2>/dev/null || (sudo apt-get install -y python3-pip && pip3 install pymavlink)"
+wsl bash -c 'pip3 install pymavlink --quiet 2>/dev/null || (sudo apt-get install -y python3-pip && pip3 install pymavlink)'
 Write-Host "  pymavlink installed" -ForegroundColor Green
 
 # ============================================================================

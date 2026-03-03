@@ -1,0 +1,39 @@
+# Single-container: PX4 SITL + Gazebo Harmonic + ROS2 + MAVROS
+# No inter-container networking; everything runs in one container on localhost.
+#
+# Build (from repo root):
+#   docker compose -f docker/simulation/docker-compose.all-in-one.yml build
+#
+# Run:
+#   docker compose -f docker/simulation/docker-compose.all-in-one.yml up
+#
+# QGC: start this stack first, then in QGC connect to TCP 127.0.0.1:5760 (recommended) or UDP 127.0.0.1:14550.
+
+services:
+  sim:
+    build:
+      context: ../..
+      dockerfile: docker/px4_sitl/Dockerfile.all-in-one
+    image: proxigo/sitl-all-in-one
+    container_name: sitl_all_in_one
+    hostname: sitl_all_in_one
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "14550:14550/udp"
+      - "5760:5760/tcp"
+      - "18570:18570/udp"
+    environment:
+      - PX4_HOME_LAT=${PX4_HOME_LAT:-36.2329}
+      - PX4_HOME_LON=${PX4_HOME_LON:--116.8276}
+      - PX4_HOME_ALT=${PX4_HOME_ALT:-50}
+      - HEADLESS=1
+      - ROS_DOMAIN_ID=0
+      - RUN_ROS2_NODES=${RUN_ROS2_NODES:-0}
+    volumes:
+      - ../../config:/ros2_ws/config:ro
+      - ../../src:/ros2_ws/src:ro
+      - ../../satellite_data:/satellite_data:ro
+      - ../../config/mission:/mission:ro
+    stdin_open: true
+    tty: true

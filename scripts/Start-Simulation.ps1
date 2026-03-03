@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Proxigo UAV Simulation Launcher for Windows
     
@@ -144,7 +144,7 @@ pip3 install pymavlink --quiet 2>/dev/null || (sudo apt-get install -y python3-p
 
 echo 'WSL setup complete!'
 '@
-    wsl -d $defaultDistro bash -c $bashScript
+    wsl -d $defaultDistro -e bash -c $bashScript
     
     Write-Host "[OK] WSL2 setup complete!" -ForegroundColor Green
     Write-Host ""
@@ -215,12 +215,12 @@ function Invoke-WSLSimulation {
     $displayHost = Get-WindowsHostIP
     $headlessFlag = if ($Headless) { "--headless" } else { "" }
     
-    # Build command
+    # Build command (use -f to avoid long double-quoted string parse issues)
     $projectPathWSL = "/mnt/c/Users/$env:USERNAME/OneDrive/Documents/GitHub/Proxigo_Scalence"
-    $wslCmd = "export DISPLAY=$displayHost`:0; export LIBGL_ALWAYS_SOFTWARE=1; export PX4_HOME_LAT=$Lat; export PX4_HOME_LON=$Lon; export PX4_HOME_ALT=$Alt; export PX4_VEHICLE=$Vehicle; cd $projectPathWSL; chmod +x scripts/start_simulation.sh; ./scripts/start_simulation.sh $Action $headlessFlag --vehicle $Vehicle --lat $Lat --lon $Lon --alt $Alt"
+    $wslCmd = "export DISPLAY={0}:0; export LIBGL_ALWAYS_SOFTWARE=1; export PX4_HOME_LAT={1}; export PX4_HOME_LON={2}; export PX4_HOME_ALT={3}; export PX4_VEHICLE={4}; cd {5}; chmod +x scripts/start_simulation.sh; sh scripts/start_simulation.sh {6} {7} --vehicle {4} --lat {1} --lon {2} --alt {3}" -f $displayHost, $Lat, $Lon, $Alt, $Vehicle, $projectPathWSL, $Action, $headlessFlag
     
     Write-Host "[INFO] Running simulation in WSL2..." -ForegroundColor Gray
-    wsl bash -c $wslCmd
+    wsl -e sh -c $wslCmd
 }
 
 function Invoke-DirectDocker {

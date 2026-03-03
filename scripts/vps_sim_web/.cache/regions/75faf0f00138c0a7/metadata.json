@@ -1,0 +1,14 @@
+{
+  "region_id": "sim_region",
+  "name": "Simulation region",
+  "center": {
+    "latitude": 36.063943206196505,
+    "longitude": -119.31215479545219
+  },
+  "imagery": {
+    "resolution_m": 0.48272401317255287,
+    "width_pixels": 256,
+    "height_pixels": 256,
+    "file": "satellite.png"
+  }
+}

@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VPS Simulation – Mapbox Globe</title>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.6.0/mapbox-gl.css" rel="stylesheet" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.6.0/mapbox-gl.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, sans-serif; }
+    #map { width: 100%; height: 70vh; }
+    #map.draw-mode { cursor: crosshair; }
+    #panel {
+      padding: 1rem;
+      max-height: 30vh;
+      overflow: auto;
+      background: #f5f5f5;
+      border-top: 1px solid #ccc;
+    }
+    .controls { margin-bottom: 0.75rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+    button {
+      padding: 0.5rem 1rem;
+      background: #1a73e8;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover { background: #1557b0; }
+    button:disabled { background: #999; cursor: not-allowed; }
+    input[type="text"] { padding: 0.4rem; width: 12rem; }
+    .summary { font-weight: 600; margin: 0.5rem 0; color: #333; }
+    table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+    th, td { border: 1px solid #ddd; padding: 0.35rem 0.5rem; text-align: left; }
+    th { background: #eee; }
+    .success { color: green; }
+    .fail { color: #c00; }
+    .hint { color: #666; font-size: 0.9rem; margin-top: 0.5rem; }
+    #tokenWarning { background: #fff3cd; padding: 0.5rem; margin-bottom: 0.5rem; font-size: 0.9rem; }
+    .debug-thumb { max-height: 48px; max-width: 80px; cursor: pointer; display: block; }
+    #debugOverlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 9999; justify-content: center; align-items: center; }
+    #debugOverlay img { max-width: 95%; max-height: 95%; object-fit: contain; }
+    #debugOverlay.show { display: flex; }
+    .region-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+    .advanced-toggle { font-size: 0.9rem; color: #1a73e8; cursor: pointer; user-select: none; }
+    .advanced-toggle:hover { text-decoration: underline; }
+    #advancedParams { display: none; margin-top: 0.5rem; padding: 0.5rem; background: #eee; border-radius: 4px; }
+    #advancedParams.show { display: block; }
+    .export-row { margin-top: 0.5rem; }
+    .export-row button { background: #2e7d32; margin-right: 0.5rem; }
+    .export-row button:hover { background: #1b5e20; }
+    .imagery-tip { color: #666; font-size: 0.85rem; margin-top: 0.25rem; }
+  </style>
+</head>
+<body>
+  <div id="tokenWarning" style="display: none;"></div>
+  <div id="debugOverlay" aria-label="Feature match view">
+    <img id="debugOverlayImg" alt="Reference vs query" />
+  </div>
+  <div id="map"></div>
+  <div id="panel">
+    <div class="controls">
+      <span class="region-row">
+        <label>Region: </label>
+        <select id="regionPreset" title="Jump map to a preset region">
+          <option value="death_valley">Death Valley</option>
+          <option value="mojave">Mojave Desert</option>
+          <option value="grand_canyon">Grand Canyon</option>
+          <option value="custom">Custom (draw on map)</option>
+        </select>
+      </span>
+      <button id="btnDraw" type="button">Draw region</button>
+      <button id="btnRun" type="button">Download & Run Simulation</button>
+      <button id="btnClear" type="button">Clear region</button>
+      <label>
+        Altitudes (m): <input type="text" id="altitudes" value="50" title="Comma-separated, e.g. 30, 50, 100" />
+      </label>
+      <label>
+        Positions: <input type="text" id="numPositions" value="1" style="width:4rem" title="Number of random positions (max 20)" />
+      </label>
+    </div>
+    <div>
+      <span class="advanced-toggle" id="advancedToggle" aria-expanded="false">▼ Advanced (ORB / match)</span>
+      <div id="advancedParams">
+        <label>ORB features: <input type="number" id="nfeaturesOrb" min="50" max="500" value="180" style="width:4rem" /></label>
+        <label>Min matches: <input type="number" id="minMatches" min="1" max="20" value="3" style="width:3rem" /></label>
+        <label>Ratio threshold: <input type="number" id="ratioThreshold" min="0.5" max="0.99" step="0.01" value="0.9" style="width:4rem" /></label>
+        <label>Clusters: <input type="number" id="nClusters" min="1" max="10" value="3" style="width:3rem" /></label>
+      </div>
+    </div>
+    <p id="drawHint" class="hint">Click "Draw region", then drag on the map to draw a rectangle. Results show ground truth (green) vs estimated (red).</p>
+    <p class="imagery-tip">Tip: If imagery fails to load, try a smaller region or a different location.</p>
+    <div id="summary" class="summary"></div>
+    <div id="tableWrap"></div>
+    <div id="exportRow" class="export-row" style="display: none;">
+      <button id="btnExportCsv" type="button">Export CSV</button>
+      <button id="btnExportJson" type="button">Export JSON</button>
+    </div>
+  </div>
+
+  <script>
+    const MAPBOX_TOKEN = ({{ mapbox_token | tojson }}) || '';
+    const DEATH_VALLEY = { center: [-116.817, 36.2467], zoom: 9 };
+    const REGION_PRESETS = {
+      death_valley: { center: [-116.817, 36.2467], zoom: 9 },
+      mojave: { center: [-116.0, 35.5], zoom: 9 },
+      grand_canyon: { center: [-112.0, 36.0], zoom: 9 },
+      custom: null
+    };
+    let lastSimulationResponse = null;
+
+    if (!MAPBOX_TOKEN || !MAPBOX_TOKEN.startsWith('pk.') || MAPBOX_TOKEN.length < 30) {
+      document.getElementById('tokenWarning').style.display = 'block';
+      document.getElementById('tokenWarning').textContent = 'Set MAPBOX_ACCESS_TOKEN in the environment and restart the app to use Mapbox globe view. Using Esri satellite (flat) as fallback.';
+      useFallbackMap();
+    }
+
+    let map = null;
+    let rect = null;
+    let drawMode = false;
+    const MIN_BOX_DEG = 0.001;
+
+    function setDrawHint(text) {
+      var el = document.getElementById('drawHint');
+      if (el) el.textContent = text;
+    }
+
+    function updateDrawButton() {
+      var btn = document.getElementById('btnDraw');
+      if (btn) btn.style.background = drawMode ? '#0d47a1' : '#1a73e8';
+    }
+
+    function initMap() {
+      if (!MAPBOX_TOKEN || MAPBOX_TOKEN.length < 30) return;
+      mapboxgl.accessToken = MAPBOX_TOKEN;
+      map = new mapboxgl.Map({
+        container: 'map',
+        style: 'mapbox://styles/mapbox/satellite-v9',
+        center: DEATH_VALLEY.center,
+        zoom: DEATH_VALLEY.zoom,
+        projection: 'globe'
+      });
+      map.on('load', function() {
+        map.setFog({
+          'color': 'rgb(186, 210, 235)',
+          'high-color': 'rgb(36, 92, 223)',
+          'horizon-blend': 0.02,
+          'space-color': 'rgb(11, 11, 25)',
+          'star-intensity': 0.35
+        });
+        map.addSource('rect', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        map.addLayer({
+          id: 'rect-fill',
+          type: 'fill',
+          source: 'rect',
+          paint: { 'fill-color': '#1a73e8', 'fill-opacity': 0.2 }
+        });
+        map.addLayer({
+          id: 'rect-line',
+          type: 'line',
+          source: 'rect',
+          paint: { 'line-color': '#1a73e8', 'line-width': 2 }
+        });
+        map.addSource('results', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        map.addLayer({
+          id: 'results-circles',
+          type: 'circle',
+          source: 'results',
+          paint: {
+            'circle-radius': 6,
+            'circle-color': ['get', 'color'],
+            'circle-stroke-width': 1,
+            'circle-stroke-color': '#fff'
+          }
+        });
+      });
+
+      var dragStart = null;
+      var moveHandler = null;
+      var upHandler = null;
+
+      map.on('mousedown', function(e) {
+        if (!drawMode || !map.getSource('rect')) return;
+        e.preventDefault();
+        dragStart = { lng: e.lngLat.lng, lat: e.lngLat.lat };
+        map.dragPan.disable();
+        setDrawHint('Drag to draw rectangle, then release.');
+        function onMove(ev) {
+          if (!dragStart || !map.getSource('rect')) return;
+          var w = Math.abs(ev.lngLat.lng - dragStart.lng);
+          var h = Math.abs(ev.lngLat.lat - dragStart.lat);
+          var north = Math.max(dragStart.lat, ev.lngLat.lat);
+          var south = Math.min(dragStart.lat, ev.lngLat.lat);
+          var east = Math.max(dragStart.lng, ev.lngLat.lng);
+          var west = Math.min(dragStart.lng, ev.lngLat.lng);
+          var coords = [[west, south], [east, south], [east, north], [west, north], [west, south]];
+          map.getSource('rect').setData({
+            type: 'FeatureCollection',
+            features: [{ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [coords] } }]
+          });
+        }
+        function onUp(ev) {
+          if (!dragStart || !map.getSource('rect')) return;
+          map.dragPan.enable();
+          map.off('mousemove', moveHandler);
+          map.off('mouseup', upHandler);
+          var w = Math.abs(ev.lngLat.lng - dragStart.lng);
+          var h = Math.abs(ev.lngLat.lat - dragStart.lat);
+          if (w >= MIN_BOX_DEG && h >= MIN_BOX_DEG) {
+            rect = {
+              north: Math.max(dragStart.lat, ev.lngLat.lat),
+              south: Math.min(dragStart.lat, ev.lngLat.lat),
+              east: Math.max(dragStart.lng, ev.lngLat.lng),
+              west: Math.min(dragStart.lng, ev.lngLat.lng)
+            };
+            setDrawHint('Region set. Click "Download & Run Simulation" or draw again to change.');
+            drawMode = false;
+            updateDrawButton();
+            document.getElementById('map').classList.remove('draw-mode');
+          } else {
+            map.getSource('rect').setData({ type: 'FeatureCollection', features: [] });
+            setDrawHint('Draw too small. Click "Draw region" and drag a larger area.');
+          }
+          dragStart = null;
+        }
+        moveHandler = onMove;
+        upHandler = onUp;
+        map.on('mousemove', moveHandler);
+        map.on('mouseup', upHandler);
+        map.getCanvas().addEventListener('mouseleave', function cancel() {
+          if (!dragStart) return;
+          map.dragPan.enable();
+          map.off('mousemove', moveHandler);
+          map.off('mouseup', upHandler);
+          map.getCanvas().removeEventListener('mouseleave', cancel);
+          map.getSource('rect').setData({ type: 'FeatureCollection', features: [] });
+          dragStart = null;
+          setDrawHint('Draw cancelled. Click "Draw region" to try again.');
+        }, { once: true });
+      });
+    }
+
+    function getRect() {
+      return rect;
+    }
+
+    function useFallbackMap() {
+      const L = window.L;
+      map = L.map('map').setView(DEATH_VALLEY.center.slice().reverse(), DEATH_VALLEY.zoom);
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Esri', maxZoom: 19
+      }).addTo(map);
+      window._leafletRect = null;
+      var dragStart = null;
+
+      map.on('mousedown', function(e) {
+        if (!drawMode) return;
+        L.DomEvent.preventDefault(e);
+        dragStart = e.latlng;
+        map.dragging.disable();
+        setDrawHint('Drag to draw rectangle, then release.');
+      });
+      map.on('mousemove', function(e) {
+        if (!dragStart) return;
+        if (window._leafletRect) map.removeLayer(window._leafletRect);
+        var bounds = L.latLngBounds(dragStart, e.latlng);
+        window._leafletRect = L.rectangle(bounds, { color: '#1a73e8', weight: 2, fillOpacity: 0.2 }).addTo(map);
+      });
+      map.on('mouseup', function(e) {
+        if (!dragStart) return;
+        map.dragging.enable();
+        var bounds = L.latLngBounds(dragStart, e.latlng);
+        var size = bounds.getNorth() - bounds.getSouth();
+        var size2 = bounds.getEast() - bounds.getWest();
+        if (Math.abs(size) >= MIN_BOX_DEG && Math.abs(size2) >= MIN_BOX_DEG) {
+          rect = { north: bounds.getNorth(), south: bounds.getSouth(), east: bounds.getEast(), west: bounds.getWest() };
+          setDrawHint('Region set. Click "Download & Run Simulation" or draw again to change.');
+          drawMode = false;
+          updateDrawButton();
+          document.getElementById('map').classList.remove('draw-mode');
+        } else {
+          if (window._leafletRect) { map.removeLayer(window._leafletRect); }
+          window._leafletRect = null;
+          setDrawHint('Draw too small. Click "Draw region" and drag a larger area.');
+        }
+        dragStart = null;
+      });
+
+      window._leafletRectLayer = function() { return window._leafletRect; };
+      window._leafletMarkers = [];
+      window._isLeaflet = true;
+    }
+
+    if (MAPBOX_TOKEN && MAPBOX_TOKEN.length >= 30) {
+      initMap();
+    }
+
+    document.getElementById('debugOverlay').addEventListener('click', function() {
+      this.classList.remove('show');
+    });
+
+    document.getElementById('advancedToggle').addEventListener('click', function() {
+      var el = document.getElementById('advancedParams');
+      var expanded = el.classList.toggle('show');
+      this.setAttribute('aria-expanded', expanded);
+      this.textContent = (expanded ? '▲' : '▼') + ' Advanced (ORB / match)';
+    });
+
+    document.getElementById('regionPreset').addEventListener('change', function() {
+      var key = this.value;
+      var preset = REGION_PRESETS[key];
+      if (!preset || !map) return;
+      if (map.flyTo) {
+        map.flyTo({ center: preset.center, zoom: preset.zoom });
+      } else if (map.setView) {
+        map.setView([preset.center[1], preset.center[0]], preset.zoom);
+      }
+    });
+
+    function downloadBlob(blob, filename) {
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    document.getElementById('btnExportCsv').onclick = function() {
+      if (!lastSimulationResponse || !lastSimulationResponse.results.length) return;
+      var cols = ['altitude_m', 'yaw_deg', 'truth_lat', 'truth_lon', 'est_lat', 'est_lon', 'error_m', 'success', 'confidence', 'n_matches'];
+      var header = cols.join(',');
+      var rows = lastSimulationResponse.results.map(function(r) {
+        return cols.map(function(c) {
+          var v = r[c];
+          if (v === null || v === undefined) return '';
+          if (typeof v === 'number' && isNaN(v)) return '';
+          if (typeof v === 'string' && v.indexOf(',') >= 0) return '"' + v.replace(/"/g, '""') + '"';
+          return String(v);
+        }).join(',');
+      });
+      var csv = header + '\n' + rows.join('\n');
+      downloadBlob(new Blob([csv], { type: 'text/csv' }), 'vps_simulation_results.csv');
+    };
+
+    document.getElementById('btnExportJson').onclick = function() {
+      if (!lastSimulationResponse) return;
+      var out = { summary: lastSimulationResponse.summary, results: lastSimulationResponse.results };
+      var json = JSON.stringify(out, null, 2);
+      downloadBlob(new Blob([json], { type: 'application/json' }), 'vps_simulation_results.json');
+    };
+
+    document.getElementById('btnDraw').onclick = function() {
+      if (!map) return;
+      drawMode = true;
+      updateDrawButton();
+      document.getElementById('map').classList.add('draw-mode');
+      setDrawHint('Drag on the map to draw a rectangle.');
+      // Clear any previous run so drawing a new region doesn’t show old results
+      var sumEl = document.getElementById('summary');
+      var tableEl = document.getElementById('tableWrap');
+      if (sumEl) { sumEl.textContent = ''; sumEl.innerHTML = ''; }
+      if (tableEl) tableEl.innerHTML = '';
+      if (map.getSource && map.getSource('results')) map.getSource('results').setData({ type: 'FeatureCollection', features: [] });
+      if (window._isLeaflet) {
+        (window._leafletMarkers || []).forEach(function(m) { try { map.removeLayer(m); } catch (e) {} });
+        window._leafletMarkers = [];
+      }
+      lastSimulationResponse = null;
+      var exportRow = document.getElementById('exportRow');
+      if (exportRow) exportRow.style.display = 'none';
+    };
+
+    document.getElementById('btnClear').onclick = function() {
+      rect = null;
+      drawMode = false;
+      updateDrawButton();
+      document.getElementById('map').classList.remove('draw-mode');
+      setDrawHint('Click "Draw region", then drag on the map to draw a rectangle. Results show ground truth (green) vs estimated (red).');
+      if (map) {
+        if (map.getSource) {
+          if (map.getSource('rect')) map.getSource('rect').setData({ type: 'FeatureCollection', features: [] });
+          if (map.getSource('results')) map.getSource('results').setData({ type: 'FeatureCollection', features: [] });
+        } else if (window._isLeaflet) {
+          if (window._leafletRect) { map.removeLayer(window._leafletRect); window._leafletRect = null; }
+          var markers = window._leafletMarkers || [];
+          markers.forEach(function(m) { try { map.removeLayer(m); } catch (e) {} });
+          window._leafletMarkers = [];
+        }
+      }
+      var sumEl = document.getElementById('summary');
+      var tableEl = document.getElementById('tableWrap');
+      if (sumEl) { sumEl.textContent = ''; sumEl.innerHTML = ''; }
+      if (tableEl) { tableEl.innerHTML = ''; }
+      lastSimulationResponse = null;
+      var exportRow = document.getElementById('exportRow');
+      if (exportRow) exportRow.style.display = 'none';
+    };
+
+    document.getElementById('btnRun').onclick = async function() {
+      const bbox = getRect();
+      if (!bbox) {
+        alert('Draw a region first: click "Draw region", then drag on the map to draw a rectangle.');
+        return;
+      }
+      const btn = document.getElementById('btnRun');
+      btn.disabled = true;
+      var sumEl = document.getElementById('summary');
+      var tableEl = document.getElementById('tableWrap');
+      if (sumEl) { sumEl.textContent = 'Fetching imagery and running simulation… (typically 10–30 s)'; }
+      if (tableEl) { tableEl.innerHTML = ''; }
+      // Clear previous run from map so a new run doesn’t show old points
+      if (map && map.getSource && map.getSource('results')) map.getSource('results').setData({ type: 'FeatureCollection', features: [] });
+      if (map && window._isLeaflet && window._leafletMarkers) {
+        (window._leafletMarkers || []).forEach(function(m) { try { map.removeLayer(m); } catch (e) {} });
+        window._leafletMarkers = [];
+      }
+
+      const altitudesText = document.getElementById('altitudes').value.trim();
+      const altitudes = altitudesText ? altitudesText.split(/[\s,]+/).map(Number).filter(n => !isNaN(n)) : [50];
+      const numPositions = Math.min(20, Math.max(1, parseInt(document.getElementById('numPositions').value, 10) || 1));
+      var configOverride = {
+        nfeatures_orb: parseInt(document.getElementById('nfeaturesOrb').value, 10) || 180,
+        min_matches: parseInt(document.getElementById('minMatches').value, 10) || 3,
+        ratio_threshold: parseFloat(document.getElementById('ratioThreshold').value) || 0.9,
+        n_clusters: parseInt(document.getElementById('nClusters').value, 10) || 3
+      };
+
+      try {
+        const res = await fetch('/api/simulate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            north: bbox.north,
+            south: bbox.south,
+            east: bbox.east,
+            west: bbox.west,
+            altitudes,
+            num_positions: numPositions,
+            config_override: configOverride
+          })
+        });
+        const text = await res.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (_) {
+          if (sumEl) sumEl.textContent = 'Server error (response was not JSON). Restart the app and try again.';
+          return;
+        }
+        if (!res.ok) {
+          var el = document.getElementById('summary');
+          if (el) {
+            el.className = 'summary fail';
+            el.textContent = 'Error: ' + (data.error || res.statusText);
+          }
+          return;
+        }
+        if (sumEl) sumEl.className = 'summary';
+        const s = data.summary;
+        if (sumEl) sumEl.textContent =
+          `Done: ${s.success_count}/${s.total} successful. Avg error: ${s.avg_error_m != null ? s.avg_error_m + ' m' : 'N/A'}.`;
+
+        lastSimulationResponse = data;
+        var exportRow = document.getElementById('exportRow');
+        if (exportRow) exportRow.style.display = 'block';
+
+        const results = data.results;
+        let table = '<table><thead><tr><th>Alt (m)</th><th>Yaw</th><th>Truth lat</th><th>Truth lon</th><th>Est lat</th><th>Est lon</th><th>Error (m)</th><th>OK</th><th>Match</th></tr></thead><tbody>';
+        results.forEach(function(r, idx) {
+          var matchCell = '—';
+          if (r.debug_image_b64) {
+            var dataUrl = 'data:image/png;base64,' + r.debug_image_b64;
+            matchCell = '<img class="debug-thumb" src="' + dataUrl + '" data-full="' + dataUrl + '" alt="View match" title="Click to see ref vs query" />';
+          }
+          table += '<tr><td>' + r.altitude_m + '</td><td>' + r.yaw_deg + '</td>' +
+            '<td>' + r.truth_lat.toFixed(6) + '</td><td>' + r.truth_lon.toFixed(6) + '</td>' +
+            '<td>' + r.est_lat.toFixed(6) + '</td><td>' + r.est_lon.toFixed(6) + '</td>' +
+            '<td>' + (r.error_m != null ? r.error_m.toFixed(2) : '—') + '</td>' +
+            '<td class="' + (r.success ? 'success' : 'fail') + '">' + (r.success ? 'Yes' : 'No') + '</td>' +
+            '<td>' + matchCell + '</td></tr>';
+        });
+        table += '</tbody></table>';
+        if (tableEl) tableEl.innerHTML = table;
+        tableEl.querySelectorAll('.debug-thumb').forEach(function(thumb) {
+          thumb.addEventListener('click', function() {
+            document.getElementById('debugOverlayImg').src = this.getAttribute('data-full');
+            document.getElementById('debugOverlay').classList.add('show');
+          });
+        });
+
+        const features = [];
+        results.forEach(r => {
+          features.push({ type: 'Feature', properties: { color: '#22c522' }, geometry: { type: 'Point', coordinates: [r.truth_lon, r.truth_lat] } });
+          if (r.success) features.push({ type: 'Feature', properties: { color: '#e53935' }, geometry: { type: 'Point', coordinates: [r.est_lon, r.est_lat] } });
+        });
+        if (map && map.getSource && map.getSource('results')) {
+          map.getSource('results').setData({ type: 'FeatureCollection', features });
+        } else if (map && window._isLeaflet && window.L) {
+          (window._leafletMarkers || []).forEach(function(m) { map.removeLayer(m); });
+          window._leafletMarkers = [];
+          results.forEach(function(r) {
+            window._leafletMarkers.push(window.L.circleMarker([r.truth_lat, r.truth_lon], { radius: 6, color: '#22c522', fillColor: '#22c522', fillOpacity: 1, weight: 1 }).addTo(map));
+            if (r.success) window._leafletMarkers.push(window.L.circleMarker([r.est_lat, r.est_lon], { radius: 6, color: '#e53935', fillColor: '#e53935', fillOpacity: 1, weight: 1 }).addTo(map));
+          });
+        }
+      } catch (err) {
+        if (sumEl) sumEl.textContent = 'Request failed: ' + err.message;
+      } finally {
+        btn.disabled = false;
+      }
+    };
+  </script>
+</body>
+</html>

@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VPS Simulation – Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, sans-serif; }
+    #map { width: 100%; height: 70vh; }
+    #panel {
+      padding: 1rem;
+      max-height: 30vh;
+      overflow: auto;
+      background: #f5f5f5;
+      border-top: 1px solid #ccc;
+    }
+    .controls { margin-bottom: 0.75rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+    button {
+      padding: 0.5rem 1rem;
+      background: #1a73e8;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover { background: #1557b0; }
+    button:disabled { background: #999; cursor: not-allowed; }
+    input[type="text"] { padding: 0.4rem; width: 12rem; }
+    .summary { font-weight: 600; margin: 0.5rem 0; color: #333; }
+    table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+    th, td { border: 1px solid #ddd; padding: 0.35rem 0.5rem; text-align: left; }
+    th { background: #eee; }
+    .success { color: green; }
+    .fail { color: #c00; }
+    .hint { color: #666; font-size: 0.9rem; margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="panel">
+    <div class="controls">
+      <button id="btnRun" type="button">Download & Run Simulation</button>
+      <button id="btnClear" type="button">Clear region</button>
+      <label>
+        Altitudes (m): <input type="text" id="altitudes" value="30, 50, 100" />
+      </label>
+      <label>
+        Positions: <input type="text" id="numPositions" value="5" style="width:4rem" />
+      </label>
+    </div>
+    <p class="hint">Click two corners on the map to draw a rectangle (your region), then click "Download & Run Simulation". Results show ground truth (green) vs estimated (red) and error by altitude/angle.</p>
+    <div id="summary" class="summary"></div>
+    <div id="tableWrap"></div>
+  </div>
+
+  <script>
+    const map = L.map('map').setView([39.678, -75.75], 14);
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      attribution: 'Esri',
+      maxZoom: 19
+    }).addTo(map);
+
+    let rect = null;
+    let firstClick = null;
+
+    function getRect() {
+      if (!rect) return null;
+      const b = rect.getBounds();
+      return { north: b.getNorth(), south: b.getSouth(), east: b.getEast(), west: b.getWest() };
+    }
+
+    map.on('click', function(e) {
+      if (firstClick) {
+        const bounds = L.latLngBounds(firstClick, e.latlng);
+        if (rect) map.removeLayer(rect);
+        rect = L.rectangle(bounds, { color: '#1a73e8', weight: 2, fillOpacity: 0.2 });
+        rect.addTo(map);
+        firstClick = null;
+      } else {
+        firstClick = e.latlng;
+        if (rect) { map.removeLayer(rect); rect = null; }
+      }
+    });
+
+    document.getElementById('btnClear').onclick = function() {
+      if (rect) {
+        map.removeLayer(rect);
+        rect = null;
+      }
+      document.getElementById('summary').textContent = '';
+      document.getElementById('tableWrap').innerHTML = '';
+    };
+
+    document.getElementById('btnRun').onclick = async function() {
+      const bbox = getRect();
+      if (!bbox) {
+        alert('Draw a rectangle first: click one corner, then click the opposite corner of the region.');
+        return;
+      }
+      const btn = document.getElementById('btnRun');
+      btn.disabled = true;
+      document.getElementById('summary').textContent = 'Running simulation...';
+      document.getElementById('tableWrap').innerHTML = '';
+
+      const altitudesText = document.getElementById('altitudes').value.trim();
+      const altitudes = altitudesText ? altitudesText.split(/[\s,]+/).map(Number).filter(n => !isNaN(n)) : [30, 50, 100];
+      const numPositions = parseInt(document.getElementById('numPositions').value, 10) || 5;
+
+      try {
+        const res = await fetch('/api/simulate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            north: bbox.north,
+            south: bbox.south,
+            east: bbox.east,
+            west: bbox.west,
+            altitudes,
+            num_positions: numPositions
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          document.getElementById('summary').textContent = 'Error: ' + (data.error || res.statusText);
+          return;
+        }
+        const s = data.summary;
+        document.getElementById('summary').textContent =
+          `Done: ${s.success_count}/${s.total} successful. Avg error: ${s.avg_error_m != null ? s.avg_error_m + ' m' : 'N/A'}.`;
+
+        const results = data.results;
+        let table = '<table><thead><tr><th>Alt (m)</th><th>Yaw</th><th>Truth lat</th><th>Truth lon</th><th>Est lat</th><th>Est lon</th><th>Error (m)</th><th>OK</th></tr></thead><tbody>';
+        results.forEach(r => {
+          table += `<tr>
+            <td>${r.altitude_m}</td><td>${r.yaw_deg}</td>
+            <td>${r.truth_lat.toFixed(6)}</td><td>${r.truth_lon.toFixed(6)}</td>
+            <td>${r.est_lat.toFixed(6)}</td><td>${r.est_lon.toFixed(6)}</td>
+            <td>${r.error_m != null ? r.error_m.toFixed(2) : '—'}</td>
+            <td class="${r.success ? 'success' : 'fail'}">${r.success ? 'Yes' : 'No'}</td>
+          </tr>`;
+        });
+        table += '</tbody></table>';
+        document.getElementById('tableWrap').innerHTML = table;
+
+        results.forEach(r => {
+          L.circleMarker([r.truth_lat, r.truth_lon], { radius: 6, color: 'green', fillOpacity: 0.8 }).addTo(map).bindTooltip('Truth', { permanent: false });
+          L.circleMarker([r.est_lat, r.est_lon], { radius: 5, color: 'red', fillOpacity: 0.8 }).addTo(map).bindTooltip('Est', { permanent: false });
+        });
+      } catch (err) {
+        document.getElementById('summary').textContent = 'Request failed: ' + err.message;
+      } finally {
+        btn.disabled = false;
+      }
+    };
+  </script>
+</body>
+</html>

@@ -1,0 +1,59 @@
+# Single-container: PX4 SITL + Gazebo Harmonic + ROS2 Humble + MAVROS
+# All simulation and ROS2 nodes run in one container (no inter-container networking).
+#
+# Build (from repo root):
+#   docker build -t proxigo/sitl-all-in-one -f docker/px4_sitl/Dockerfile.all-in-one .
+# Requires: proxigo/px4-gazebo:harmonic (build with Dockerfile.gazebo first)
+
+FROM proxigo/px4-gazebo:harmonic
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# Install ROS2 Humble
+RUN apt-get update && apt-get install -y \
+    software-properties-common \
+    curl \
+    gnupg \
+    lsb-release \
+    && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null \
+    && apt-get update \
+    && apt-get install -y \
+    ros-humble-desktop \
+    ros-humble-cv-bridge \
+    ros-humble-image-transport \
+    ros-humble-tf2-ros \
+    ros-humble-tf2-geometry-msgs \
+    ros-humble-geographic-msgs \
+    ros-humble-sensor-msgs \
+    ros-humble-geometry-msgs \
+    ros-humble-nav-msgs \
+    ros-humble-mavros \
+    ros-humble-mavros-extras \
+    ros-humble-mavros-msgs \
+    ros-humble-geodesy \
+    python3-colcon-common-extensions \
+    python3-rosdep \
+    && rm -rf /var/lib/apt/lists/*
+
+# GeographicLib for MAVROS
+RUN /opt/ros/humble/lib/mavros/install_geographiclib_datasets.sh || true
+
+# MAVProxy for QGC (send to host)
+RUN pip3 install --no-cache-dir mavproxy pymavlink
+
+# ROS2 setup in shell
+RUN echo "source /opt/ros/humble/setup.bash" >> /root/.bashrc
+
+# Workspace for optional ROS2 packages (mounted at run)
+ENV ROS_DOMAIN_ID=0
+ENV ROS2_WS=/ros2_ws
+RUN mkdir -p /ros2_ws/src /ros2_ws/logs
+
+# Single-container entrypoint: start PX4+Gazebo, then MAVROS, then optional nodes
+COPY docker/px4_sitl/entrypoint_all_in_one.sh /root/entrypoint_all_in_one.sh
+RUN sed -i 's/\r$//' /root/entrypoint_all_in_one.sh && chmod +x /root/entrypoint_all_in_one.sh
+
+WORKDIR /root/PX4-Autopilot
+ENTRYPOINT ["/root/entrypoint_all_in_one.sh"]

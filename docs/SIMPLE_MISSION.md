@@ -14,10 +14,10 @@ Created a simple mission with:
 
 ## Mission Details
 
-**Home Position:** 36.2329, -116.8276, 0m (Death Valley)
+**Home Position:** 36.2329, -116.8276, **50m AMSL** (above Death Valley floor ~-86m so altitudes are never negative)
 
 **Waypoints:**
-1. Takeoff to 50m at home
+1. Takeoff to 50m (100m AMSL) at home
 2. North (~120m from home)
 3. Northeast (~150m)
 4. Southeast (~150m)
