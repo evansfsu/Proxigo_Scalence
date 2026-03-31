@@ -12,9 +12,17 @@ from sklearn.cluster import KMeans
 from .reference_loader import ReferenceImage
 
 
-def _get_descriptor_extractor(use_beblid: bool = False):
-    """ORB for keypoints; BEBLID for descriptors if available, else ORB."""
-    orb = cv2.ORB_create(nfeatures=2000)  # nfeatures overridden by config in caller
+def _get_descriptor_extractor(use_beblid: bool = False, use_sift: bool = False,
+                               nfeatures: int = 2000):
+    """Return (detector, descriptor_extractor) pair.
+
+    use_sift=True  → SIFT (float32 descriptors, L2 matching)
+    use_sift=False → ORB  (binary descriptors, Hamming matching)
+    """
+    if use_sift:
+        sift = cv2.SIFT_create(nfeatures=nfeatures)
+        return sift, None
+    orb = cv2.ORB_create(nfeatures=nfeatures)
     desc = None
     if use_beblid:
         try:
@@ -26,7 +34,7 @@ def _get_descriptor_extractor(use_beblid: bool = False):
 
 def extract_features(
     image: np.ndarray,
-    orb: cv2.ORB,
+    detector: cv2.Feature2D,
     descriptor_extractor: Optional[cv2.Feature2D],
     nfeatures: int = 250,
 ) -> Tuple[List[cv2.KeyPoint], Optional[np.ndarray]]:
@@ -36,23 +44,28 @@ def extract_features(
     else:
         gray = image
 
-    orb.setMaxFeatures(nfeatures)
-    kpts = orb.detect(gray, None)
+    if hasattr(detector, 'setMaxFeatures'):
+        detector.setMaxFeatures(nfeatures)
+
+    kpts = detector.detect(gray, None)
     if descriptor_extractor is not None:
         kpts, des = descriptor_extractor.compute(gray, kpts)
     else:
-        kpts, des = orb.compute(gray, kpts)
+        kpts, des = detector.compute(gray, kpts)
     return kpts, des
 
 
-def build_flann_matcher():
-    """FLANN matcher for binary descriptors (ORB/BEBLID)."""
-    index_params = dict(
-        algorithm=6,  # FLANN_INDEX_LSH
-        table_number=6,
-        key_size=12,
-        multi_probe_level=1,
-    )
+def build_flann_matcher(use_sift: bool = False):
+    """FLANN matcher. Uses KDTree for float descriptors, LSH for binary."""
+    if use_sift:
+        index_params = dict(algorithm=1, trees=5)  # FLANN_INDEX_KDTREE
+    else:
+        index_params = dict(
+            algorithm=6,  # FLANN_INDEX_LSH
+            table_number=6,
+            key_size=12,
+            multi_probe_level=1,
+        )
     search_params = dict(checks=50)
     return cv2.FlannBasedMatcher(index_params, search_params)
 
@@ -67,11 +80,14 @@ def match_with_ratio_test(
     """Lowe's ratio test: keep match if best distance < ratio * second_best."""
     if des_ref is None or des_query is None or len(des_ref) < 2 or len(des_query) < 2:
         return []
-    # Ensure uint8 for FLANN LSH
-    if des_ref.dtype != np.uint8:
-        des_ref = np.uint8(des_ref)
-    if des_query.dtype != np.uint8:
-        des_query = np.uint8(des_query)
+    if des_ref.dtype in (np.float32, np.float64):
+        des_ref = np.float32(des_ref)
+        des_query = np.float32(des_query)
+    else:
+        if des_ref.dtype != np.uint8:
+            des_ref = np.uint8(des_ref)
+        if des_query.dtype != np.uint8:
+            des_query = np.uint8(des_query)
     matches = flann.knnMatch(des_ref, des_query, k=k)
     good = []
     for m_n in matches:

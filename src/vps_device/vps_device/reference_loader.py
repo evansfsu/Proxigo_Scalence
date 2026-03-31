@@ -1,5 +1,5 @@
 """
-Load reference imagery and metadata (Berkeley-style or Proxigo-style).
+Load reference imagery and metadata (single-image or Proxigo-style).
 Returns a common structure for the estimator.
 """
 
@@ -86,7 +86,7 @@ def load_proxigo_region(
     )
 
 
-def load_berkeley_reference(
+def load_single_reference_image(
     path: str,
     center_lat: float,
     center_lon: float,
@@ -95,8 +95,8 @@ def load_berkeley_reference(
     image_id: Optional[str] = None,
 ) -> ReferenceImage:
     """
-    Load a Berkeley-style reference image. Physical size of the image in metres
-    (height_m x width_m) gives metres per pixel.
+    Load a single reference image with physical size metadata.
+    Physical size (height_m x width_m) gives metres-per-pixel.
     """
     p = Path(path)
     if not p.exists():
@@ -117,12 +117,13 @@ def load_berkeley_reference(
     )
 
 
-def load_berkeley_dict(
+def load_reference_dict(
     ref_dict: Dict[int, Tuple[str, float, float, float, float]],
     base_path: Optional[Path] = None,
 ) -> List[ReferenceImage]:
     """
-    Load multiple Berkeley-style references. ref_dict maps index -> (path, lat, lon, height_m, width_m).
+    Load multiple single-image references.
+    ref_dict maps index -> (path, lat, lon, height_m, width_m).
     If path is relative, base_path is prepended.
     """
     refs = []
@@ -132,7 +133,7 @@ def load_berkeley_dict(
         if base_path and not p.is_absolute():
             p = base_path / p
         refs.append(
-            load_berkeley_reference(
+            load_single_reference_image(
                 str(p), lat, lon, height_m, width_m, image_id=str(idx)
             )
         )

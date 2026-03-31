@@ -38,12 +38,8 @@ def ref_pixel_to_geo(
     dx_px = pixel_x - ref_width_px / 2
     dy_px = pixel_y - ref_height_px / 2
 
-    # Metres (image x -> east, image y -> south in typical north-up ref)
     east_m = dx_px * x_m_per_px
-    south_m = -dy_px * y_m_per_px  # pixel y down -> north positive when we subtract
-    north_m = -south_m
-
-    # Flat-earth: delta lat = north_m / m_per_deg_lat, delta lon = east_m / m_per_deg_lon
+    north_m = -dy_px * y_m_per_px  # pixel y increases downward (south); negate for north
     m_per_deg_lat = EARTH_RADIUS_M * math.pi / 180.0
     m_per_deg_lon = EARTH_RADIUS_M * math.pi / 180.0 * math.cos(math.radians(center_lat))
 
@@ -70,19 +66,16 @@ def camera_offset_to_geo(
     dx_px = camera_pixel_x - cam_center_x_px
     dy_px = camera_pixel_y - cam_center_y_px
 
-    # Camera x right -> east, y down -> south
+    # dx > 0: feature east of drone → drone west of feature
+    # dy > 0: feature south of drone → drone north of feature
     east_m = dx_px * x_m_per_px
     south_m = dy_px * y_m_per_px
-    north_m = -south_m
 
     m_per_deg_lat = EARTH_RADIUS_M * math.pi / 180.0
     m_per_deg_lon = EARTH_RADIUS_M * math.pi / 180.0 * math.cos(math.radians(ref_lat))
 
-    # Ref point is where the ground is under the camera's view at that pixel;
-    # camera is above that point, so camera lat/lon is same as ref for flat ground.
-    # (We are estimating camera horizontal position, not altitude.)
-    lat = ref_lat + (north_m / m_per_deg_lat)
-    lon = ref_lon + (east_m / m_per_deg_lon)
+    lat = ref_lat + (south_m / m_per_deg_lat)
+    lon = ref_lon - (east_m / m_per_deg_lon)
     return lat, lon
 
 
@@ -101,9 +94,8 @@ def geo_to_ref_pixel(
     m_per_deg_lon = EARTH_RADIUS_M * math.pi / 180.0 * math.cos(math.radians(center_lat))
     north_m = (lat - center_lat) * m_per_deg_lat
     east_m = (lon - center_lon) * m_per_deg_lon
-    south_m = -north_m
     dx_px = east_m / x_m_per_px
-    dy_px = -south_m / y_m_per_px  # north positive -> pixel y negative from center
+    dy_px = -north_m / y_m_per_px  # north → pixel above center (negative dy)
     pixel_x = ref_width_px / 2 + dx_px
     pixel_y = ref_height_px / 2 + dy_px
     return pixel_x, pixel_y

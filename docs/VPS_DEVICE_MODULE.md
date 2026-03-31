@@ -6,12 +6,12 @@ The **VPS (Visual Positioning System) device module** is a standalone, device-fo
 
 ## Reference
 
-This implementation is based on:
+This implementation follows a standard feature-based GPS-denied VPS flow:
 
-- **UAVs@Berkeley 106a GPS-denied project**: [uav.studentorg.berkeley.edu/106a-fa24-gps](https://uav.studentorg.berkeley.edu/106a-fa24-gps/)
-- **Code reference**: [UAVs-at-Berkeley/suas_2022, fa24_106a](https://github.com/UAVs-at-Berkeley/suas_2022/tree/main/fa24_106a)
-
-Their approach: ORB keypoints + BEBLID descriptors, FLANN matcher, Lowe's ratio test (0.95), K-means clustering to select a consistent set of matches, and GPS transform from reference image metadata plus camera FOV and altitude.
+- ORB keypoints + BEBLID descriptors
+- FLANN matcher + Lowe's ratio test
+- K-means clustering for spatially consistent match selection
+- Geo transform from reference map metadata + camera FOV + altitude
 
 ## Algorithm Summary
 
@@ -31,13 +31,13 @@ Their approach: ORB keypoints + BEBLID descriptors, FLANN matcher, Lowe's ratio 
 
 See [satellite_data/regions/test_region/metadata.json](../satellite_data/regions/test_region/metadata.json) for an example.
 
-### Berkeley-style
+### Single-image reference style
 
 - Single image path plus numeric metadata: center lat, center lon, physical height (m), width (m).
 - Metres per pixel = (height_m / image_height_px, width_m / image_width_px).
 - Filenames often encode this (e.g. `37.872310N_122.322454W_231.23H_297.8W.png`).
 
-The standalone script supports Berkeley-style via the `--berkeley lat lon height_m width_m path` arguments.
+The standalone script supports this style via the `--single-ref lat lon height_m width_m path` arguments.
 
 ## Usage
 
@@ -66,10 +66,10 @@ python src/vps_device/scripts/run_vps_standalone.py \
   --reference satellite_data/regions/test_region \
   --altitude 50 -v
 
-# Berkeley-style single reference
+# Single-image reference
 python src/vps_device/scripts/run_vps_standalone.py \
   --video flight.MOV \
-  --berkeley 37.872 122.322 231.23 297.8 path/to/ref.png \
+  --single-ref 37.872 122.322 231.23 297.8 path/to/ref.png \
   --altitude 30 -v
 ```
 
@@ -149,14 +149,6 @@ if result.success:
 
 - **Horizontal and diagonal FOV** (e.g. 71.5° and 79.5° for Siyi ZR10) and image **width/height in pixels** define the camera’s metres-per-pixel at a given altitude: `cam_x = 2 * alt * tan(h_fov/2)`, then `x_m_per_px = cam_x / width_px` (and similarly for y).
 - **Altitude** should be relative to ground (AGL). Use barometric or range sensor when available; for standalone tests a constant or CSV is sufficient.
-
-## Related companies and references
-
-- **Theseus** – Drone company that produces a Visual Positioning System. For reference, one of their model config/software installs can be run with:
-  ```bash
-  curl -fsSL https://packages.theseus.us/install.sh | sudo bash
-  ```
-  (Use only on systems you control; review the script before piping to shell.)
 
 ## Related docs
 

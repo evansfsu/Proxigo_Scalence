@@ -2,6 +2,7 @@
 Main API: load reference, then estimate(image, altitude_m, last_lat_lon) -> (lat, lon), confidence.
 """
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
@@ -26,8 +27,8 @@ from .geo_transform import (
 from .reference_loader import (
     ReferenceImage,
     load_proxigo_region,
-    load_berkeley_reference,
-    load_berkeley_dict,
+    load_single_reference_image,
+    load_reference_dict,
 )
 
 
@@ -61,9 +62,12 @@ class VPSEstimator:
         if not self.references:
             raise ValueError("At least one reference image required")
         self._ref = self.references[0]  # use first for now; can extend to multi-ref
-        self._orb, self._desc = _get_descriptor_extractor(self.config.use_beblid)
-        self._orb.setMaxFeatures(self.config.nfeatures_orb)
-        self._flann = build_flann_matcher()
+        self._orb, self._desc = _get_descriptor_extractor(
+            self.config.use_beblid, self.config.use_sift, self.config.nfeatures_orb,
+        )
+        if not self.config.use_sift and hasattr(self._orb, 'setMaxFeatures'):
+            self._orb.setMaxFeatures(self.config.nfeatures_orb)
+        self._flann = build_flann_matcher(self.config.use_sift)
         self._ref_kpts, self._ref_des = self._compute_ref_features()
         self._last_lat_lon: Optional[Tuple[float, float]] = None
         self._last_debug: Optional[Tuple[List[Tuple[float, float]], List[Tuple[float, float]]]] = None
@@ -98,8 +102,22 @@ class VPSEstimator:
         cam_center_x = cfg.width_px / 2.0
         cam_center_y = cfg.height_px / 2.0
 
+        # --- Scale normalization (ORB only; SIFT handles scale natively) ---
+        ref_m_per_px = (self._ref.x_m_per_px + self._ref.y_m_per_px) / 2.0
+        cam_m_per_px = (x_m_per_px + y_m_per_px) / 2.0
+        scale_ratio = ref_m_per_px / cam_m_per_px  # <1 when drone coarser
+
+        query_for_features = image
+        kp_scale_back = 1.0
+        if not self.config.use_sift and (0.0 < scale_ratio < 0.7 or scale_ratio > 1.5):
+            h, w = image.shape[:2]
+            inv = 1.0 / scale_ratio
+            new_w, new_h = max(1, int(w * inv)), max(1, int(h * inv))
+            query_for_features = cv2.resize(image, (new_w, new_h))
+            kp_scale_back = scale_ratio
+
         query_kpts, query_des = extract_features(
-            image,
+            query_for_features,
             self._orb,
             self._desc,
             self.config.nfeatures_orb,
@@ -119,7 +137,7 @@ class VPSEstimator:
             self._flann,
             ratio=self.config.ratio_threshold,
         )
-        if len(matches) < self.config.min_matches:
+        if len(matches) < max(self.config.min_matches, 4):
             return EstimateResult(
                 success=False,
                 lat=0.0,
@@ -128,31 +146,128 @@ class VPSEstimator:
                 n_matches=len(matches),
             )
 
-        filtered = filter_matches_kmeans_continuity(
-            self._ref_kpts,
-            query_kpts,
-            matches,
-            self._ref,
-            last,
-            self.config.max_dist_from_last_m,
-            self.config.max_dist_from_cluster_median_m,
-            self.config.n_clusters,
-            get_distance_metres,
-            ref_pixel_to_geo,
+        # ------------------------------------------------------------------
+        # Flow A: ORB/BEBLID + FLANN + ratio + clustering + continuity + geo
+        # ------------------------------------------------------------------
+        if getattr(self.config, "matching_flow", "homography") == "cluster":
+            selected = filter_matches_kmeans_continuity(
+                self._ref_kpts,
+                query_kpts,
+                matches,
+                self._ref,
+                last,
+                self.config.max_dist_from_last_m,
+                self.config.max_dist_from_cluster_median_m,
+                self.config.n_clusters,
+                get_distance_metres,
+                ref_pixel_to_geo,
+            )
+            if len(selected) < max(self.config.min_matches // 2, 4):
+                self._last_debug = None
+                return EstimateResult(
+                    success=False,
+                    lat=0.0,
+                    lon=0.0,
+                    confidence=0.0,
+                    n_matches=len(selected),
+                    details={"all_matches": len(matches), "flow": "cluster"},
+                )
+
+            # Scale selected query points back to original camera coordinates.
+            if kp_scale_back != 1.0:
+                selected = [
+                    (ref_pt, (qry_pt[0] * kp_scale_back, qry_pt[1] * kp_scale_back))
+                    for ref_pt, qry_pt in selected
+                ]
+
+            lats = []
+            lons = []
+            ref_pts_debug = []
+            query_pts_debug = []
+            for ref_pt, query_pt in selected:
+                ref_lat, ref_lon = ref_pixel_to_geo(
+                    ref_pt[0], ref_pt[1],
+                    self._ref.center_lat,
+                    self._ref.center_lon,
+                    self._ref.height_px,
+                    self._ref.width_px,
+                    self._ref.y_m_per_px,
+                    self._ref.x_m_per_px,
+                )
+                cam_lat, cam_lon = camera_offset_to_geo(
+                    ref_lat,
+                    ref_lon,
+                    query_pt[0],
+                    query_pt[1],
+                    cam_center_x,
+                    cam_center_y,
+                    x_m_per_px,
+                    y_m_per_px,
+                )
+                lats.append(cam_lat)
+                lons.append(cam_lon)
+                ref_pts_debug.append(ref_pt)
+                query_pts_debug.append(query_pt)
+
+            lat = float(np.median(lats))
+            lon = float(np.median(lons))
+            confidence = len(selected) / max(len(matches), 1)
+
+            self._last_lat_lon = (lat, lon)
+            self._last_debug = (ref_pts_debug, query_pts_debug)
+            return EstimateResult(
+                success=True,
+                lat=lat,
+                lon=lon,
+                confidence=confidence,
+                n_matches=len(selected),
+                details={"all_matches": len(matches), "flow": "cluster"},
+            )
+
+        # --- RANSAC homography for geometric verification ---
+        src_pts = np.float32(
+            [self._ref_kpts[m.queryIdx].pt for m in matches]
+        ).reshape(-1, 1, 2)
+        dst_pts = np.float32(
+            [query_kpts[m.trainIdx].pt for m in matches]
+        ).reshape(-1, 1, 2)
+
+        H, mask = cv2.findHomography(
+            src_pts, dst_pts, cv2.RANSAC, ransacReprojThreshold=10.0,
         )
-        if not filtered:
+        if mask is None:
             self._last_debug = None
             return EstimateResult(
-                success=False,
-                lat=0.0,
-                lon=0.0,
-                confidence=0.0,
+                success=False, lat=0.0, lon=0.0, confidence=0.0,
                 n_matches=len(matches),
             )
 
+        inlier_mask = mask.ravel().astype(bool)
+        inlier_matches = [m for m, ok in zip(matches, inlier_mask) if ok]
+
+        min_inliers = max(self.config.min_matches // 2, 4)
+        if len(inlier_matches) < min_inliers:
+            self._last_debug = None
+            return EstimateResult(
+                success=False, lat=0.0, lon=0.0, confidence=0.0,
+                n_matches=len(inlier_matches),
+                details={"all_matches": len(matches)},
+            )
+
+        # Scale query keypoints back to original camera coordinates
+        if kp_scale_back != 1.0:
+            for kp in query_kpts:
+                kp.pt = (kp.pt[0] * kp_scale_back, kp.pt[1] * kp_scale_back)
+
+        # --- Position estimation from inliers ---
         lats = []
         lons = []
-        for (ref_pt, query_pt) in filtered:
+        ref_pts_debug = []
+        query_pts_debug = []
+        for m in inlier_matches:
+            ref_pt = self._ref_kpts[m.queryIdx].pt
+            query_pt = query_kpts[m.trainIdx].pt
+
             ref_lat, ref_lon = ref_pixel_to_geo(
                 ref_pt[0], ref_pt[1],
                 self._ref.center_lat,
@@ -174,22 +289,44 @@ class VPSEstimator:
             )
             lats.append(cam_lat)
             lons.append(cam_lon)
+            ref_pts_debug.append(ref_pt)
+            query_pts_debug.append(query_pt)
 
-        # Median is more robust to outlier matches than mean
         lat = float(np.median(lats))
         lon = float(np.median(lons))
-        confidence = len(filtered) / max(len(matches), 1)
+        confidence = len(inlier_matches) / max(len(matches), 1)
+
+        # Adaptive continuity: reject if too far from last position
+        if last is not None:
+            fov_ground_m = 2 * altitude_m * math.tan(math.radians(cfg.h_fov_deg) / 2)
+            adaptive_max_dist = max(
+                self.config.max_dist_from_last_m,
+                fov_ground_m * 0.5,
+            )
+            dist = get_distance_metres(lat, lon, last[0], last[1])
+            if dist > adaptive_max_dist:
+                self._last_debug = None
+                return EstimateResult(
+                    success=False, lat=0.0, lon=0.0, confidence=0.0,
+                    n_matches=len(inlier_matches),
+                    details={"continuity_dist": dist},
+                )
 
         self._last_lat_lon = (lat, lon)
-        self._last_debug = ([p for p, _ in filtered], [q for _, q in filtered])
+        self._last_debug = (ref_pts_debug, query_pts_debug)
         return EstimateResult(
             success=True,
             lat=lat,
             lon=lon,
             confidence=confidence,
-            n_matches=len(filtered),
+            n_matches=len(inlier_matches),
             details={"all_matches": len(matches)},
         )
+
+    @property
+    def last_position(self) -> Optional[Tuple[float, float]]:
+        """Last estimated (lat, lon), or None if no successful estimate yet."""
+        return self._last_lat_lon
 
     def set_last_position(self, lat: float, lon: float) -> None:
         """Set last predicted position for continuity (e.g. from external source)."""
@@ -239,7 +376,7 @@ def create_estimator_from_proxigo_region(
     return VPSEstimator(ref, config)
 
 
-def create_estimator_from_berkeley(
+def create_estimator_from_single_reference(
     path: str,
     center_lat: float,
     center_lon: float,
@@ -247,6 +384,6 @@ def create_estimator_from_berkeley(
     width_m: float,
     config: Optional[VPSDeviceConfig] = None,
 ) -> VPSEstimator:
-    """Create estimator from a single Berkeley-style reference image."""
-    ref = load_berkeley_reference(path, center_lat, center_lon, height_m, width_m)
+    """Create estimator from a single reference image + geo size metadata."""
+    ref = load_single_reference_image(path, center_lat, center_lon, height_m, width_m)
     return VPSEstimator(ref, config)

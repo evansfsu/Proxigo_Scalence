@@ -1,5 +1,5 @@
 """
-ROS2 node: subscribe to image + altitude, run VPS estimator, publish pose + confidence.
+ROS2 node: subscribe to image + altitude, run VPS estimator, publish pose + confidence + debug image.
 """
 
 import rclpy
@@ -28,6 +28,7 @@ class VPSDeviceNode(Node):
         self.declare_parameter("altitude_topic", "/mavros/global_position/rel_alt")
         self.declare_parameter("publish_topic", "/vps_device/position")
         self.declare_parameter("confidence_topic", "/vps_device/confidence")
+        self.declare_parameter("debug_image_topic", "/vps_device/debug_image")
         self.declare_parameter("match_interval_sec", 1.0)
         self.declare_parameter("fov_h", 71.5)
         self.declare_parameter("fov_d", 79.5)
@@ -83,6 +84,11 @@ class VPSDeviceNode(Node):
             self.get_parameter("confidence_topic").value,
             10,
         )
+        self.debug_image_pub = self.create_publisher(
+            Image,
+            self.get_parameter("debug_image_topic").value,
+            1,
+        )
         self.get_logger().info("VPS device node started")
 
     def image_callback(self, msg: Image) -> None:
@@ -100,11 +106,12 @@ class VPSDeviceNode(Node):
         if dt < self.match_interval_sec:
             return
         self.last_match_time = now
+
         result = self.estimator.estimate(
             self.last_image,
             self.current_altitude,
-            last_lat_lon=None,
         )
+
         stamp = self.last_image_stamp if self.last_image_stamp else now.to_msg()
         pose_msg = PoseWithCovarianceStamped()
         pose_msg.header.stamp = stamp
@@ -123,20 +130,29 @@ class VPSDeviceNode(Node):
             0.0, 0.0, 0.0, 0.0, 0.0, 999.0,
         ]
         self.pose_pub.publish(pose_msg)
+
         conf_msg = Float32()
         conf_msg.data = result.confidence
         self.confidence_pub.publish(conf_msg)
+
         if result.success:
             self.get_logger().info(
-                f"VPS lat={result.lat:.6f} lon={result.lon:.6f} conf={result.confidence:.2f}"
+                f"VPS lat={result.lat:.6f} lon={result.lon:.6f} "
+                f"conf={result.confidence:.2f} matches={result.n_matches}"
             )
+
+        debug_img = self.estimator.get_debug_image(self.last_image)
+        if debug_img is not None:
+            debug_msg = self.bridge.cv2_to_imgmsg(debug_img, "bgr8")
+            debug_msg.header.stamp = stamp
+            self.debug_image_pub.publish(debug_msg)
 
 
 def main(args=None):
     rclpy.init(args=args)
     try:
         node = VPSDeviceNode()
-        timer = node.create_timer(0.2, node.timer_callback)  # 5 Hz check
+        node.create_timer(0.2, node.timer_callback)
         rclpy.spin(node)
     except ValueError as e:
         rclpy.logging.get_logger("vps_device_node").error(str(e))

@@ -16,7 +16,7 @@ import cv2
 
 from vps_device.config import VPSDeviceConfig
 from vps_device.estimator import VPSEstimator, create_estimator_from_proxigo_region, EstimateResult
-from vps_device.reference_loader import load_berkeley_reference
+from vps_device.reference_loader import load_single_reference_image
 
 
 def _altitude_for_frame(altitude_m: float, altitude_file: Path, frame_index: int) -> float:
@@ -105,9 +105,9 @@ def main() -> int:
     parser.add_argument("--rtsp", type=str, help="RTSP URL (e.g. rtsp://host:8554/stream)")
     parser.add_argument("--images", type=str, help="Directory of images (sorted by name)")
     parser.add_argument("--reference", type=str, default="",
-                        help="Proxigo region dir (with metadata.json); required unless --berkeley is used")
-    parser.add_argument("--berkeley", type=str, nargs=5, metavar=("LAT", "LON", "HEIGHT_M", "WIDTH_M", "PATH"),
-                        help="Berkeley-style: center_lat center_lon height_m width_m image_path")
+                        help="Proxigo region dir (with metadata.json); required unless --single-ref is used")
+    parser.add_argument("--single-ref", type=str, nargs=5, metavar=("LAT", "LON", "HEIGHT_M", "WIDTH_M", "PATH"),
+                        help="Single reference: center_lat center_lon height_m width_m image_path")
     parser.add_argument("--altitude", type=float, default=30.0, help="Constant altitude (m AGL)")
     parser.add_argument("--altitude-file", type=str, help="CSV: frame index or timestamp, altitude_m")
     parser.add_argument("--output", "-o", type=str, help="Output CSV path")
@@ -116,6 +116,10 @@ def main() -> int:
     parser.add_argument("--fov-d", type=float, default=79.5, help="Diagonal FOV (deg)")
     parser.add_argument("--width", type=int, default=1920)
     parser.add_argument("--height", type=int, default=1080)
+    parser.add_argument("--beblid", action="store_true",
+                        help="Use BEBLID descriptors with ORB keypoints (requires opencv-contrib)")
+    parser.add_argument("--matching-flow", choices=["homography", "cluster"], default="homography",
+                        help="Matching flow for estimator (default: homography)")
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("--visualize", action="store_true",
                         help="Show live visualization: match overlay and position on frame (press 'q' to quit)")
@@ -129,18 +133,20 @@ def main() -> int:
         d_fov_deg=args.fov_d,
         width_px=args.width,
         height_px=args.height,
+        use_beblid=args.beblid,
+        matching_flow=args.matching_flow,
     )
 
     # Build estimator
-    if args.berkeley:
-        lat, lon, h_m, w_m, path = args.berkeley
-        ref = load_berkeley_reference(
+    if args.single_ref:
+        lat, lon, h_m, w_m, path = args.single_ref
+        ref = load_single_reference_image(
             path, float(lat), float(lon), float(h_m), float(w_m)
         )
         estimator = VPSEstimator(ref, config)
     else:
         if not args.reference:
-            parser.error("--reference or --berkeley is required")
+            parser.error("--reference or --single-ref is required")
         ref_path = Path(args.reference)
         if not ref_path.exists():
             print(f"Reference path does not exist: {ref_path}", file=sys.stderr)

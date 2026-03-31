@@ -52,6 +52,14 @@ satellite_data/regions/*/satellite.tif
 satellite_data/regions/*/elevation.tif
 test_data/*.bag
 test_data/*.db3
+test_data/uav_visloc/
+test_data/anyvis_qz/images/
+test_data/anyvis_qz/satellite_roi.tif
+test_data/anyvis_qz/satellite.png
+test_data/anyvis_temp/
+UAV_VisLoc_dataset.zip
+UAV_VisLoc_example.zip
+Data.rar
 recordings/
 
 # Keep directory structure
@@ -108,3 +116,24 @@ compile_commands.json
 *.temp
 *.bak
 *.backup
+
+# =============================================================
+# VPS tuning outputs and large local datasets
+# =============================================================
+# Generated evaluation outputs
+results*.csv
+test_data/**/tuning_runs/
+
+# Large local benchmark assets (keep local only)
+test_data/anyvis_qz/
+test_data/anyvis_qz_aerial/
+test_data/cache/
+
+# Common large archives and raster assets
+*.zip
+*.rar
+*.7z
+*.tar
+*.tar.gz
+*.tif
+*.tiff

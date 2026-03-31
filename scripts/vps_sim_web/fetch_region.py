@@ -23,7 +23,7 @@ def lat_lon_to_tile(lat: float, lon: float, zoom: int) -> Tuple[int, int]:
     return x, y
 
 
-MAX_TILES = 6  # 2x3 grid max; fetched in parallel
+MAX_TILES = 400  # max tiles to fetch; larger areas need more tiles
 TILE_TIMEOUT = 12
 # Placeholder detection: real satellite tiles have high variance and varied colors; "no data" tiles are gray-ish
 # Esri "Map data not yet available" = light gray background + gray text (mean ~200+, std moderate)

@@ -1,6 +1,6 @@
 """
 VPS Device configuration: camera FOV, resolution, matcher parameters.
-Defaults aligned with Berkeley fa24_106a (e.g. Siyi ZR10).
+Defaults for IMX477 (12.3 MP) with 6 mm lens on NVIDIA Orin Nano.
 """
 
 from dataclasses import dataclass
@@ -11,21 +11,27 @@ from typing import Optional
 class VPSDeviceConfig:
     """Configuration for the VPS device estimator and matcher."""
 
-    # Camera (Berkeley defaults: Siyi ZR10 79.5 deg FOV, 1920x1080)
-    h_fov_deg: float = 71.5
-    d_fov_deg: float = 79.5
+    # Camera: IMX477 sensor (4056x3040) with 6 mm lens
+    h_fov_deg: float = 63.0
+    d_fov_deg: float = 73.0
     width_px: int = 1920
     height_px: int = 1080
 
     # ORB / matcher
-    nfeatures_orb: int = 250
-    ratio_threshold: float = 0.95  # Lowe's ratio test
+    nfeatures_orb: int = 2000
+    ratio_threshold: float = 0.85  # Lowe's ratio test
     n_clusters: int = 6
     max_dist_from_last_m: float = 50.0  # continuity: cluster median within this of last prediction
     max_dist_from_cluster_median_m: float = 5.0  # keep matches within this of cluster median
     min_matches: int = 10
+    # Matching flow:
+    # - "homography": geometric inlier filtering using RANSAC homography
+    # - "cluster": K-means clustering + continuity gating + geo transform
+    matching_flow: str = "homography"
 
-    # BEBLID (optional, requires opencv-contrib)
+    # Feature type: SIFT (float, more distinctive) vs ORB (binary, faster)
+    use_sift: bool = False
+    # BEBLID (optional, requires opencv-contrib, ORB only)
     use_beblid: bool = False
 
     # Paths (for Proxigo-style region loading)
