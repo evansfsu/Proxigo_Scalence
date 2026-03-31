@@ -8,6 +8,16 @@ This document describes the Visual Inertial Odometry (VIO) system enhanced with 
 2. **Satellite Matching** - Aerial-to-satellite image correlation for absolute positioning
 3. **Fusion Layer** - Combining relative VIO with absolute satellite corrections
 
+## Revisit Plan (Practical Path)
+
+This is the approach to revisit next, in a minimal and testable sequence:
+
+1. Keep the existing camera VPS pipeline as the absolute-position update source.
+2. Add IMU/VIO prediction in software first (no hardware dependency).
+3. Fuse VIO prediction + satellite updates in EKF with explicit gating/noise tuning.
+4. Validate in replay mode on recorded sequences before any field testing.
+5. Move to ROS2/PX4 integration checks once replay performance is stable.
+
 ---
 
 ## System Architecture

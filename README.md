@@ -22,20 +22,22 @@ I built Proxigo Scalence as a practical VPS project for GPS-denied drone localiz
 | IMU/VIO path | Software-simulated in `vio_bridge` + fusion stack |
 | IMU hardware flight validation | Pending |
 
-### Interview Quick Summary
-
-- Designed a camera-first VPS stack for GPS-denied localization on edge compute.
-- Implemented and compared multiple localization approaches (homography baseline, retrieval+PnP, VO+EKF fusion, keyframe flow).
-- Built reproducible evaluation tooling (split metrics, hit-rate thresholds, stage-failure diagnostics).
-- Shipped ROS2/PX4-compatible integration paths and software IMU simulation for fusion testing.
-
 ---
 
 ## How It Works
 
-This repo has two active localization flows. The diagram below is accurate for the default estimator path in `vps_device`.
+This repo ended up with multiple workflows as the project evolved. Instead of one single pipeline, think of it as a toolbox with a shared core.
 
-### 1) Default estimator path (`VPSEstimator`)
+### Approach map (what each path is for)
+
+| Path | Main files | Purpose |
+|---|---|---|
+| Core estimator | `src/vps_device/vps_device/estimator.py` | Fast camera-to-map position estimate with continuity filtering |
+| Standalone fusion runners | `scripts/vps_live.py`, `scripts/vps_avl_benchmark.py`, `scripts/vps_vnav_like.py` | More complete VO + map matching + EKF experiments |
+| ROS2 + PX4 integration | `src/proxigo_bringup`, `src/state_fusion`, `src/vio_bridge`, `src/satellite_matching` | Full system integration and simulation/hardware bring-up |
+| Web simulation | `scripts/vps_sim_web` | Quick visual testing with map/trajectory debugging in browser |
+
+### 1) Core estimator path (`VPSEstimator`)
 
 ```
 Camera Frame (live)          Satellite Reference (pre-loaded)
@@ -55,13 +57,30 @@ Camera Frame (live)          Satellite Reference (pre-loaded)
                Position estimate
 ```
 
-### 2) Benchmark/fusion path (`vps_live.py`, `vps_avl_benchmark.py`, `vps_vnav_like.py`)
+### 2) Standalone fusion path (`vps_live.py`, `vps_avl_benchmark.py`, `vps_vnav_like.py`)
 
 ```
 Frame -> VO predict -> Retrieval top-K chips -> local match + PnP -> EKF update
 ```
 
-In practice, I use the first flow for simple map-matching validation and the second flow when I need continuity and better outlier rejection over longer sequences.
+### 3) ROS2/PX4 full-device path (simulation and hardware-oriented)
+
+```
+Camera + (optional IMU) -> VIO bridge + satellite matcher -> state_fusion EKF
+-> MAVROS/PX4 interface -> SITL (Gazebo) or hardware bring-up
+```
+
+### 4) Web simulation path (`scripts/vps_sim_web`)
+
+```
+Synthetic/recorded trajectory -> VPS matching visualizer -> Cesium 3D debug view
+```
+
+In practice, I use:
+- the **core estimator** for quick map-match sanity checks,
+- the **fusion runners** for benchmark tuning and ablations,
+- the **ROS2/PX4 path** when validating integration behavior,
+- and the **web simulator** for fast visual debugging before flight tests.
 
 ---
 
