@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import csv as csv_mod
+import json
 import sys
 import time
 from pathlib import Path
@@ -54,6 +55,9 @@ def _local_match_on_chip(
     chip_gray: np.ndarray,
     query_bgr: np.ndarray,
     config: VPSDeviceConfig,
+    dense_fallback: bool = False,
+    fallback_ratio: float = 0.92,
+    fallback_nfeatures: int = 6000,
 ):
     """Return (ref_pts_px, query_pts_px, n_inliers, n_matches) in chip-local ref coords."""
     detector, desc_ext = _get_descriptor_extractor(False, getattr(config, "use_sift", False), config.nfeatures_orb)
@@ -67,12 +71,71 @@ def _local_match_on_chip(
 
     matches = match_with_ratio_test(ref_des, q_des, flann, ratio=config.ratio_threshold)
     if len(matches) < max(config.min_matches, 8):
-        return [], [], 0, len(matches)
+        if not dense_fallback:
+            return [], [], 0, len(matches)
+        # Denser fallback path: SIFT descriptors with a looser ratio threshold.
+        try:
+            sift = cv2.SIFT_create(nfeatures=int(fallback_nfeatures))
+            ref_kpts_s, ref_des_s = sift.detectAndCompute(chip_gray, None)
+            q_kpts_s, q_des_s = sift.detectAndCompute(q_gray, None)
+            if ref_des_s is None or q_des_s is None or len(ref_kpts_s) < 10 or len(q_kpts_s) < 10:
+                return [], [], 0, len(matches)
+            flann_s = build_flann_matcher(True)
+            matches_s = match_with_ratio_test(ref_des_s, q_des_s, flann_s, ratio=float(fallback_ratio))
+            if len(matches_s) < max(config.min_matches, 8):
+                return [], [], 0, len(matches_s)
+            ref_pts_s = np.float32([ref_kpts_s[m.queryIdx].pt for m in matches_s])
+            q_pts_s = np.float32([q_kpts_s[m.trainIdx].pt for m in matches_s])
+            return ref_pts_s.tolist(), q_pts_s.tolist(), 0, len(matches_s)
+        except cv2.error:
+            return [], [], 0, len(matches)
 
     ref_pts = np.float32([ref_kpts[m.queryIdx].pt for m in matches])
     q_pts = np.float32([q_kpts[m.trainIdx].pt for m in matches])
     # Inlier count is computed inside pose module, but return points for it.
     return ref_pts.tolist(), q_pts.tolist(), 0, len(matches)
+
+
+def _rotate_image_keep_bounds(img: np.ndarray, angle_deg: float) -> np.ndarray:
+    h, w = img.shape[:2]
+    center = (w * 0.5, h * 0.5)
+    M = cv2.getRotationMatrix2D(center, angle_deg, 1.0)
+    cos = abs(M[0, 0])
+    sin = abs(M[0, 1])
+    new_w = int((h * sin) + (w * cos))
+    new_h = int((h * cos) + (w * sin))
+    M[0, 2] += (new_w * 0.5) - center[0]
+    M[1, 2] += (new_h * 0.5) - center[1]
+    return cv2.warpAffine(img, M, (new_w, new_h), flags=cv2.INTER_LINEAR, borderValue=(0, 0, 0))
+
+
+def _query_candidates(index: ReferenceChipIndex, frame_for_match: np.ndarray, topk: int, robust: bool):
+    """Query retrieval index; optional robust mode averages original + CLAHE query scores."""
+    base = index.query(frame_for_match, topk=topk)
+    if not robust:
+        return base
+
+    gray = cv2.cvtColor(frame_for_match, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    gray_eq = clahe.apply(gray)
+    eq_bgr = cv2.cvtColor(gray_eq, cv2.COLOR_GRAY2BGR)
+    alt = index.query(eq_bgr, topk=topk)
+
+    # Merge by chip_id with score averaging; keep higher diversity than single query.
+    merged = {}
+    for r in base:
+        merged[r.chip.chip_id] = [r.chip, float(r.score), 1]
+    for r in alt:
+        if r.chip.chip_id in merged:
+            merged[r.chip.chip_id][1] += float(r.score)
+            merged[r.chip.chip_id][2] += 1
+        else:
+            merged[r.chip.chip_id] = [r.chip, float(r.score), 1]
+    fused = []
+    for chip_id, (chip, score_sum, n) in merged.items():
+        fused.append((chip, score_sum / n))
+    fused.sort(key=lambda x: x[1], reverse=True)
+    return [type(base[0])(chip=c, score=float(s)) for c, s in fused[: max(topk, 1)]] if fused and base else base
 
 
 def run(args):
@@ -180,6 +243,9 @@ def run(args):
                 "truth_lon",
                 "truth_alt",
                 "error_m",
+                "map_stage",
+                "diag_retrieval_candidates",
+                "diag_pnp_candidates",
             ]
         )
 
@@ -188,9 +254,39 @@ def run(args):
     n_errors = 0
     total_error = 0.0
     t0 = time.monotonic()
+    counters = {
+        "map_attempted": 0,
+        "retrieval_candidates": 0,
+        "match_success_candidates": 0,
+        "pnp_success_candidates": 0,
+        "prior_gate_reject_candidates": 0,
+        "innovation_reject_updates": 0,
+        "accepted_updates": 0,
+    }
+
+    ref_anchor_px = None
+    dsm_anchor_px = None
+    dsm_res_m = None
+    if not args.disable_dsm_anchor_alignment:
+        if (
+            args.ref_coordinate_x is not None
+            and args.ref_coordinate_y is not None
+            and args.dsm_coordinate_x is not None
+            and args.dsm_coordinate_y is not None
+            and args.dsm_resolution is not None
+        ):
+            ref_anchor_px = (float(args.ref_coordinate_x), float(args.ref_coordinate_y))
+            dsm_anchor_px = (float(args.dsm_coordinate_x), float(args.dsm_coordinate_y))
+            dsm_res_m = float(args.dsm_resolution)
+            print(
+                "DSM anchor alignment enabled: "
+                f"ref_anchor={ref_anchor_px}, dsm_anchor={dsm_anchor_px}, dsm_res={dsm_res_m:.6f}m"
+            )
 
     try:
         for frame, fname in _iter_image_dir(Path(args.source_dir)):
+            if args.max_frames is not None and frame_idx >= args.max_frames:
+                break
             meta = per_frame.get(fname) if per_frame else None
             altitude = float(meta.altitude_m) if meta else args.altitude
             yaw = float(meta.yaw_deg) if meta and meta.yaw_deg is not None else None
@@ -231,19 +327,48 @@ def run(args):
             best_rank = None
             best_chip = None
             best_matches = 0
+            map_stage = "skip"
+            diag_retrieval_candidates = 0
+            diag_pnp_candidates = 0
             if ekf.initialized and (frame_idx % args.map_match_every == 0):
-                results = index.query(frame, topk=args.topk)
+                counters["map_attempted"] += 1
+                map_stage = "attempted"
+                frame_for_match = frame
+                if args.yaw_prior_rotate_ref and yaw is not None:
+                    # Equivalent to rotating reference by +yaw: rotate query by -yaw.
+                    frame_for_match = _rotate_image_keep_bounds(frame, -float(yaw))
+
+                results = _query_candidates(
+                    index=index,
+                    frame_for_match=frame_for_match,
+                    topk=args.topk,
+                    robust=bool(args.robust_retrieval),
+                )
                 if results:
+                    diag_retrieval_candidates = len(results)
+                    counters["retrieval_candidates"] += len(results)
                     best_candidate = None
                     best_candidate_score = None
+                    any_match = False
+                    any_pnp = False
+                    any_prior_reject = False
 
                     # Evaluate all retrieved chips and keep the strongest PnP hypothesis.
                     for rank, cand in enumerate(results, start=1):
                         chip = cand.chip
                         chip_gray = ref_gray[chip.y0 : chip.y0 + chip.h, chip.x0 : chip.x0 + chip.w]
-                        ref_pts, q_pts, _, n_matches = _local_match_on_chip(chip_gray, frame, config)
+                        ref_pts, q_pts, _, n_matches = _local_match_on_chip(
+                            chip_gray,
+                            frame_for_match,
+                            config,
+                            dense_fallback=bool(args.dense_fallback),
+                            fallback_ratio=float(args.dense_fallback_ratio),
+                            fallback_nfeatures=int(args.dense_fallback_nfeatures),
+                        )
                         if not ref_pts or not q_pts:
                             continue
+                        any_match = True
+                        counters["match_success_candidates"] += 1
 
                         ref_pts_full = [(p[0] + chip.x0, p[1] + chip.y0) for p in ref_pts]
                         if dsm_m is not None:
@@ -257,6 +382,9 @@ def run(args):
                                 ref_width_px=region.width_px,
                                 ref_height_px=region.height_px,
                                 ref_m_per_px=float((region.x_m_per_px + region.y_m_per_px) / 2.0),
+                                ref_anchor_px=ref_anchor_px,
+                                dsm_anchor_px=dsm_anchor_px,
+                                dsm_resolution_m=dsm_res_m,
                             )
                         else:
                             fix = planar_pose_fix_from_matches(
@@ -272,6 +400,16 @@ def run(args):
 
                         if not fix.success or fix.n_inliers < args.min_pnp_inliers:
                             continue
+                        any_pnp = True
+                        diag_pnp_candidates += 1
+                        counters["pnp_success_candidates"] += 1
+
+                        if args.prior_gate_m > 0 and ekf.initialized:
+                            pred_lat, pred_lon = ekf.position
+                            if get_distance_metres(pred_lat, pred_lon, fix.lat, fix.lon) > args.prior_gate_m:
+                                any_prior_reject = True
+                                counters["prior_gate_reject_candidates"] += 1
+                                continue
 
                         # Prioritize geometric strength (inliers, reprojection quality), then confidence and retrieval score.
                         candidate_score = (
@@ -303,6 +441,22 @@ def run(args):
                         )
                         if accepted:
                             n_updates += 1
+                            counters["accepted_updates"] += 1
+                            map_stage = "accepted"
+                        else:
+                            counters["innovation_reject_updates"] += 1
+                            map_stage = "innovation_reject"
+                    else:
+                        if any_prior_reject:
+                            map_stage = "prior_gate_reject"
+                        elif any_pnp:
+                            map_stage = "pnp_rejected"
+                        elif any_match:
+                            map_stage = "match_only"
+                        else:
+                            map_stage = "no_match"
+                else:
+                    map_stage = "no_retrieval"
 
             fused = ekf.position if ekf.initialized else None
             speed = ekf.speed if ekf.initialized else 0.0
@@ -337,6 +491,9 @@ def run(args):
                         f"{meta.lon:.8f}" if meta else "",
                         f"{altitude:.1f}" if meta else "",
                         f"{err_m:.2f}" if err_m is not None else "",
+                        map_stage,
+                        int(diag_retrieval_candidates),
+                        int(diag_pnp_candidates),
                     ]
                 )
 
@@ -352,6 +509,13 @@ def run(args):
     print(f"Map/PnP updates accepted: {n_updates}")
     if n_errors:
         print(f"Mean error vs GT: {total_error / n_errors:.1f} m ({n_errors} frames)")
+    print("Stage diagnostics:")
+    for k, v in counters.items():
+        print(f"  {k}: {v}")
+    if args.diagnostics_json:
+        with open(args.diagnostics_json, "w", encoding="utf-8") as f:
+            json.dump(counters, f, indent=2)
+        print(f"Diagnostics JSON: {args.diagnostics_json}")
 
 
 def main():
@@ -382,11 +546,33 @@ def main():
     p.add_argument("--nfeatures", type=int, default=2000)
     p.add_argument("--ratio", type=float, default=0.85)
     p.add_argument("--max-dist", type=float, default=99999.0)
+    p.add_argument("--robust-retrieval", action="store_true",
+                   help="Average retrieval scores from original and CLAHE-equalized query.")
+    p.add_argument("--dense-fallback", action="store_true",
+                   help="Use SIFT fallback matching when ORB matching is weak.")
+    p.add_argument("--dense-fallback-ratio", type=float, default=0.92)
+    p.add_argument("--dense-fallback-nfeatures", type=int, default=6000)
 
     p.add_argument("--map-match-every", type=int, default=5)
     p.add_argument("--map-noise", type=float, default=30.0)
     p.add_argument("--min-pnp-inliers", type=int, default=12)
     p.add_argument("--calibration-frames", type=int, default=5)
+    p.add_argument("--max-frames", type=int, default=None,
+                   help="Optional max number of frames to process (for quick testing).")
+    p.add_argument("--prior-gate-m", type=float, default=0.0,
+                   help="Optional distance gate (m) around EKF prediction before update.")
+    p.add_argument("--yaw-prior-rotate-ref", action="store_true",
+                   help="Apply yaw-prior compensation for retrieval/matching (query rotated by -yaw).")
+    p.add_argument("--ref-coordinate-x", type=float, default=None)
+    p.add_argument("--ref-coordinate-y", type=float, default=None)
+    p.add_argument("--dsm-coordinate-x", type=float, default=None)
+    p.add_argument("--dsm-coordinate-y", type=float, default=None)
+    p.add_argument("--dsm-resolution", type=float, default=None,
+                   help="DSM metres-per-pixel for anchor alignment.")
+    p.add_argument("--disable-dsm-anchor-alignment", action="store_true",
+                   help="Ignore anchor mapping and use scale-only ref->DSM sampling.")
+    p.add_argument("--diagnostics-json", type=str, default=None,
+                   help="Optional path to save stage diagnostics as JSON.")
 
     args = p.parse_args()
     run(args)

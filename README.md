@@ -2,35 +2,66 @@
 
 **GPS-Denied Visual Positioning System for Autonomous UAVs**
 
-Proxigo Scalence is a Visual Positioning System (VPS) that enables autonomous UAV navigation without GPS. It uses onboard camera imagery matched against pre-downloaded satellite maps to estimate position in real time, deployed on an NVIDIA Jetson Orin Nano.
+I built Proxigo Scalence as a practical VPS project for GPS-denied drone localization. The core idea is simple: use the downward camera feed, match it to a local satellite map, and estimate position on-device (Orin Nano). The current work is camera-first VPS, with optional software-simulated IMU/VIO fusion experiments in the ROS2 stack.
+
+---
+
+## Performance Snapshot
+
+- **Best observed run (constrained single configuration):** approximately **80% hit-rate**.
+- **Typical current range (selected dataset slices):** approximately **60-70%** hit-rate.
+- **Harder slices:** lower performance due to map-domain mismatch and low absolute-update reliability.
+- **Current focus:** improve cross-region robustness, not only best-case tuning.
+
+### Validation Status
+
+| Area | Status |
+|------|--------|
+| Camera-only VPS (offline benchmark runs) | Validated |
+| ROS2 + PX4 stack on Orin Nano | Integrated and previously run |
+| IMU/VIO path | Software-simulated in `vio_bridge` + fusion stack |
+| IMU hardware flight validation | Pending |
+
+### Interview Quick Summary
+
+- Designed a camera-first VPS stack for GPS-denied localization on edge compute.
+- Implemented and compared multiple localization approaches (homography baseline, retrieval+PnP, VO+EKF fusion, keyframe flow).
+- Built reproducible evaluation tooling (split metrics, hit-rate thresholds, stage-failure diagnostics).
+- Shipped ROS2/PX4-compatible integration paths and software IMU simulation for fusion testing.
 
 ---
 
 ## How It Works
 
+This repo has two active localization flows. The diagram below is accurate for the default estimator path in `vps_device`.
+
+### 1) Default estimator path (`VPSEstimator`)
+
 ```
 Camera Frame (live)          Satellite Reference (pre-loaded)
        |                              |
        v                              v
-  ORB Feature                   ORB Feature
-  Extraction                    Extraction
+ ORB/SIFT Features               ORB/SIFT Features
        |                              |
-       +---------> FLANN <------------+
-                 Matching
-                    |
-                    v
-            K-Means Clustering
-            + Continuity Filter
-                    |
-                    v
-          Geo-Transform: pixel
-          offsets -> (lat, lon)
-                    |
-                    v
-            Position Estimate
+       +---------- FLANN + ratio test +
+                       |
+                       v
+         K-means + continuity gating
+                       |
+                       v
+        Geo transform (pixel -> lat/lon)
+                       |
+                       v
+               Position estimate
 ```
 
-The VPS extracts ORB features from both the live camera frame and satellite reference imagery, matches them with FLANN and Lowe's ratio test, clusters matches with K-means for outlier rejection, and converts pixel offsets to geographic coordinates using a flat-earth approximation. No GPS or IMU is required.
+### 2) Benchmark/fusion path (`vps_live.py`, `vps_avl_benchmark.py`, `vps_vnav_like.py`)
+
+```
+Frame -> VO predict -> Retrieval top-K chips -> local match + PnP -> EKF update
+```
+
+In practice, I use the first flow for simple map-matching validation and the second flow when I need continuity and better outlier rejection over longer sequences.
 
 ---
 
@@ -41,7 +72,17 @@ The VPS extracts ORB features from both the live camera frame and satellite refe
 | Companion Computer | NVIDIA Orin Nano 8GB | Runs VPS pipeline |
 | Camera | Arducam IMX477 (12.3MP, 6mm CS lens) | Downward-facing aerial imagery |
 | Flight Controller | PX4 Autopilot (Pixhawk 6X/6C) | Autopilot, UART to Orin Nano |
-| IMU (optional) | VectorNav VN-100 or BMI088 | Future VIO integration |
+| IMU (optional) | VectorNav VN-100 or BMI088 | Software-simulated VIO/EKF path; hardware validation pending |
+
+### Hardware Preview
+
+<p align="center">
+  <img src="OrinCameraDemo.JPG" alt="Orin Nano camera and enclosure demo" width="60%" />
+  <img src="Pi5.JPG" alt="Raspberry Pi 5 testing setup" width="38%" />
+</p>
+
+- Left: **Primary deployment setup** (Orin Nano + camera + enclosure concept)
+- Right: **Alternative test setup** (Raspberry Pi 5)
 
 ---
 
@@ -166,6 +207,34 @@ python scripts/vps_avl_benchmark.py \
 Outputs a CSV with fused position, retrieval score, pose-fix diagnostics, and GT error (when metadata is provided).
 
 The output CSV includes `truth_lat`, `truth_lon`, and `error_m` columns for accuracy analysis.
+
+### Run with UAV-AVL guideline layout
+
+Use the helper runner when your data follows the upstream benchmark structure (`Data/` + `Regions_params/`):
+
+```bash
+python scripts/vps_avl_guideline_runner.py \
+  --dataset-root /path/to/UAV_AVL_demo \
+  --region QZ_Town \
+  --ref-type HIGH \
+  --place QZ_SongCity \
+  --topk 5 --chip-size 768 --stride 512
+```
+
+For local compatibility mode (when you already have prepared folders like `test_data/anyvis_qz`):
+
+```bash
+python scripts/vps_avl_guideline_runner.py \
+  --dataset-root test_data \
+  --regions-yaml test_data/uav_avl_benchmark_ref/Regions_params/QZ_Town.yaml \
+  --region QZ_Town \
+  --ref-type HIGH \
+  --place QZ_SongCity \
+  --source-dir-override test_data/anyvis_qz/images_nadir \
+  --metadata-json-override test_data/anyvis_temp/QZ_Town.json \
+  --reference-map-override test_data/anyvis_qz/result_roi.tif \
+  --dsm-path-override test_data/anyvis_qz/dsm_roi.tif
+```
 
 > **Citation**: Yuxuan Zhou et al., "UAV-VisLoc: A Large-scale Dataset for UAV Visual Localization," arXiv:2405.11936, 2024.
 
@@ -312,8 +381,9 @@ ros2 launch proxigo_bringup hardware.launch.py
 ### Phase 2: Live Testing -- IN PROGRESS
 - [x] Standalone VPS live runner (camera + video input)
 - [x] Satellite reference preparation tool
-- [ ] Camera calibration on Orin Nano
-- [ ] Ground-level position accuracy testing
+- [x] Software-only IMU simulation path in fusion pipeline
+- [x] Camera calibration on Orin Nano
+- [x] Ground-level position accuracy testing
 - [ ] First flight tests at 30-100m altitude
 - [ ] Performance tuning (feature count, matching threshold)
 

@@ -231,20 +231,28 @@ class VPSFusionEKF:
             self.initialize(lat, lon)
             return True
 
-        z = np.array([lat, lon])
-
-        H = np.zeros((2, 4))
-        H[0, 0] = 1.0
-        H[1, 1] = 1.0
-
         # Altitude-adaptive noise: higher altitude = less reliable map match
         altitude_factor = max(1.0, altitude_m / 100.0)
         base_m = self.cfg.map_position_noise * altitude_factor
         scale = 1.0 / max(confidence * 10, 0.1)
         inlier_scale = max(1.0, 20.0 / max(n_inliers, 1))
         noise_m = base_m * scale * inlier_scale
+        return self.update_map_match_with_noise(lat, lon, noise_m=noise_m)
+
+    def update_map_match_with_noise(self, lat: float, lon: float, noise_m: float) -> bool:
+        """Update position using an explicit position-noise measurement model (metres)."""
+        if not self._initialized:
+            self.initialize(lat, lon)
+            return True
+
+        z = np.array([lat, lon])
+
+        H = np.zeros((2, 4))
+        H[0, 0] = 1.0
+        H[1, 1] = 1.0
 
         cur_lat = self.x[0]
+        noise_m = max(float(noise_m), 0.5)
         R = np.diag([
             (noise_m / _M_PER_DEG_LAT) ** 2,
             (noise_m / _m_per_deg_lon(cur_lat)) ** 2,

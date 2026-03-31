@@ -76,8 +76,12 @@ def _cfg_key(cfg: dict) -> str:
         "cal_frames",
         "nfeatures",
         "beblid",
+        "topk_map_update",
+        "chip_size",
+        "chip_stride",
+        "prior_gate_m",
     ]
-    payload = {k: cfg[k] for k in fields}
+    payload = {k: cfg.get(k, None) for k in fields}
     return json.dumps(payload, sort_keys=True)
 
 
@@ -126,6 +130,26 @@ def run_one(
         str(cfg["cal_frames"]),
         "--matching-flow",
         cfg["flow"],
+        "--topk-map-update",
+        str(cfg.get("topk_map_update", args.topk_map_update)),
+        "--chip-size",
+        str(cfg.get("chip_size", args.chip_size)),
+        "--chip-stride",
+        str(cfg.get("chip_stride", args.chip_stride)),
+        "--cache-dir",
+        str(args.cache_dir),
+        "--retrieval-device",
+        str(args.retrieval_device),
+        "--prior-gate-m",
+        str(cfg.get("prior_gate_m", args.prior_gate_m)),
+        "--prior-gate-alt-scale",
+        str(args.prior_gate_alt_scale),
+        "--match-gamma",
+        str(cfg.get("match_gamma", args.match_gamma)),
+        "--match-sharpen",
+        str(cfg.get("match_sharpen", args.match_sharpen)),
+        "--center-mask-ratio",
+        str(cfg.get("center_mask_ratio", args.center_mask_ratio)),
     ]
     start_frame = args.start_frame if start_frame_override is None else start_frame_override
     max_frames = args.max_frames if max_frames_override is None else max_frames_override
@@ -137,6 +161,14 @@ def run_one(
         cmd += ["--max-frames", str(max_frames)]
     if cfg["beblid"]:
         cmd.append("--beblid")
+    if cfg.get("no_clahe", False):
+        cmd.append("--no-clahe")
+    if args.dsm_path:
+        cmd += ["--dsm-path", str(args.dsm_path)]
+    if args.camera_calibration:
+        cmd += ["--camera-calibration", str(args.camera_calibration)]
+    if args.rebuild_index:
+        cmd.append("--rebuild-index")
     print(f"[{i:03d}] {cfg}")
     cp = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
     ok = cp.returncode == 0
@@ -189,9 +221,23 @@ def full_configs() -> list[dict]:
     ]
 
 
+def topk_configs() -> list[dict]:
+    """Focused sweep for top-K retrieval + gating parameters."""
+    return [
+        {"flow": "homography", "ratio": 0.85, "map_every": 5, "min_inliers": 12, "map_noise": 30.0, "max_dist": 120, "cal_frames": 3, "nfeatures": 2000, "beblid": False, "topk_map_update": 3, "chip_size": 768, "chip_stride": 512, "prior_gate_m": 140.0},
+        {"flow": "homography", "ratio": 0.90, "map_every": 5, "min_inliers": 12, "map_noise": 30.0, "max_dist": 120, "cal_frames": 3, "nfeatures": 2000, "beblid": False, "topk_map_update": 3, "chip_size": 768, "chip_stride": 512, "prior_gate_m": 140.0},
+        {"flow": "homography", "ratio": 0.85, "map_every": 5, "min_inliers": 12, "map_noise": 30.0, "max_dist": 120, "cal_frames": 3, "nfeatures": 2000, "beblid": False, "topk_map_update": 5, "chip_size": 768, "chip_stride": 512, "prior_gate_m": 160.0},
+        {"flow": "homography", "ratio": 0.85, "map_every": 5, "min_inliers": 12, "map_noise": 30.0, "max_dist": 120, "cal_frames": 3, "nfeatures": 2000, "beblid": False, "topk_map_update": 5, "chip_size": 640, "chip_stride": 384, "prior_gate_m": 160.0},
+        {"flow": "homography", "ratio": 0.85, "map_every": 5, "min_inliers": 12, "map_noise": 30.0, "max_dist": 120, "cal_frames": 3, "nfeatures": 2000, "beblid": False, "topk_map_update": 5, "chip_size": 896, "chip_stride": 512, "prior_gate_m": 180.0},
+        {"flow": "homography", "ratio": 0.85, "map_every": 7, "min_inliers": 12, "map_noise": 30.0, "max_dist": 120, "cal_frames": 3, "nfeatures": 2000, "beblid": False, "topk_map_update": 5, "chip_size": 768, "chip_stride": 512, "prior_gate_m": 180.0},
+        {"flow": "homography", "ratio": 0.85, "map_every": 5, "min_inliers": 15, "map_noise": 30.0, "max_dist": 120, "cal_frames": 3, "nfeatures": 2000, "beblid": False, "topk_map_update": 5, "chip_size": 768, "chip_stride": 512, "prior_gate_m": 140.0},
+        {"flow": "homography", "ratio": 0.85, "map_every": 5, "min_inliers": 12, "map_noise": 30.0, "max_dist": 120, "cal_frames": 3, "nfeatures": 2000, "beblid": False, "topk_map_update": 3, "chip_size": 768, "chip_stride": 512, "prior_gate_m": 120.0, "no_clahe": True, "match_sharpen": 0.1},
+    ]
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Tune vps_live.py with fast or full profiles.")
-    parser.add_argument("--profile", choices=["quick", "full", "auto"], default="quick",
+    parser.add_argument("--profile", choices=["quick", "full", "topk", "auto"], default="quick",
                         help="quick: small config set, fast iterations. full: broader search.")
     parser.add_argument("--start-frame", type=int, default=0,
                         help="Skip raw frames before this index.")
@@ -201,6 +247,32 @@ def parse_args() -> argparse.Namespace:
                         help="Processed frames cap per run (default 24 for fast tuning).")
     parser.add_argument("--no-limit", action="store_true",
                         help="Disable max-frames and run full sequence.")
+    parser.add_argument("--topk-map-update", type=int, default=1,
+                        help="Pass-through to vps_live --topk-map-update.")
+    parser.add_argument("--chip-size", type=int, default=768,
+                        help="Pass-through to vps_live --chip-size.")
+    parser.add_argument("--chip-stride", type=int, default=512,
+                        help="Pass-through to vps_live --chip-stride.")
+    parser.add_argument("--cache-dir", type=str, default="test_data/cache",
+                        help="Pass-through to vps_live --cache-dir.")
+    parser.add_argument("--retrieval-device", type=str, default="cpu",
+                        help="Pass-through to vps_live --retrieval-device.")
+    parser.add_argument("--rebuild-index", action="store_true",
+                        help="Pass-through to vps_live --rebuild-index.")
+    parser.add_argument("--dsm-path", type=str, default=None,
+                        help="Pass-through to vps_live --dsm-path.")
+    parser.add_argument("--camera-calibration", type=str, default=None,
+                        help="Pass-through to vps_live --camera-calibration.")
+    parser.add_argument("--prior-gate-m", type=float, default=180.0,
+                        help="Pass-through to vps_live --prior-gate-m.")
+    parser.add_argument("--prior-gate-alt-scale", type=float, default=1.5,
+                        help="Pass-through to vps_live --prior-gate-alt-scale.")
+    parser.add_argument("--match-gamma", type=float, default=1.0,
+                        help="Pass-through to vps_live --match-gamma.")
+    parser.add_argument("--match-sharpen", type=float, default=0.2,
+                        help="Pass-through to vps_live --match-sharpen.")
+    parser.add_argument("--center-mask-ratio", type=float, default=0.85,
+                        help="Pass-through to vps_live --center-mask-ratio.")
     parser.add_argument("--auto-window-size", type=int, default=24,
                         help="Window size per quick pass in auto mode (default 24).")
     parser.add_argument("--auto-windows", type=int, default=2,
@@ -316,7 +388,12 @@ def print_baseline() -> None:
 
 
 def run_standard(args: argparse.Namespace) -> int:
-    configs = quick_configs() if args.profile == "quick" else full_configs()
+    if args.profile == "quick":
+        configs = quick_configs()
+    elif args.profile == "topk":
+        configs = topk_configs()
+    else:
+        configs = full_configs()
     scored, results = evaluate_configs(configs, args, label="run")
     out_summary = OUT_DIR / "summary.csv"
     write_summary(scored, out_summary)
@@ -331,7 +408,7 @@ def run_standard(args: argparse.Namespace) -> int:
 
 
 def run_auto(args: argparse.Namespace) -> int:
-    configs = quick_configs()
+    configs = topk_configs() if args.topk_map_update > 1 else quick_configs()
     window_size = args.max_frames if args.max_frames is not None else args.auto_window_size
     if window_size is None:
         window_size = args.auto_window_size
@@ -414,6 +491,8 @@ def main() -> int:
         args.max_frames = None
     if args.start_frame < 0 or args.frame_stride < 1:
         raise SystemExit("start-frame must be >= 0 and frame-stride >= 1")
+    if args.topk_map_update < 1:
+        raise SystemExit("topk-map-update must be >= 1")
     if args.auto_windows < 1 or args.auto_window_size < 1 or args.auto_confirm_topk < 1:
         raise SystemExit("auto-windows, auto-window-size, and auto-confirm-topk must be >= 1")
 

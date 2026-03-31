@@ -31,6 +31,7 @@ Usage:
 
 import argparse
 import csv as csv_mod
+import hashlib
 import io
 import math
 import sys
@@ -52,9 +53,15 @@ if str(_VPS_DEVICE_PKG) not in sys.path:
 
 from vps_device.config import VPSDeviceConfig
 from vps_device.ekf import VPSFusionEKF, EKFConfig
-from vps_device.estimator import VPSEstimator, create_estimator_from_proxigo_region
-from vps_device.features import extract_features, _get_descriptor_extractor
+from vps_device.estimator import EstimateResult, VPSEstimator, create_estimator_from_proxigo_region
+from vps_device.features import (
+    _get_descriptor_extractor,
+    build_flann_matcher,
+    extract_features,
+    match_with_ratio_test,
+)
 from vps_device.geo_transform import get_distance_metres
+from vps_device.pnp import camera_matrix_from_fov, planar_pose_fix_from_matches, pnp_fix_with_dsm
 from vps_device.visual_odometry import VisualOdometry, HeadingCalibrator
 
 
@@ -233,6 +240,190 @@ def _iter_image_dir(dir_path: Path):
             yield frame, fpath.name
 
 
+def _build_retrieval_cache_path(cache_dir: Path, reference_dir: Path, chip_size: int, stride: int) -> Path:
+    """Stable cache path for retrieval index without hard-coding image filename."""
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    key_src = f"{reference_dir.resolve()}::{chip_size}::{stride}"
+    key = hashlib.sha1(key_src.encode("utf-8")).hexdigest()[:16]
+    return cache_dir / f"retrieval_index_{key}.npz"
+
+
+def _load_camera_calibration(calib_path: Path):
+    """Load OpenCV YAML/JSON calibration with camera_matrix + distortion_coefficients."""
+    if not calib_path.exists():
+        raise FileNotFoundError(f"Calibration file not found: {calib_path}")
+    fs = cv2.FileStorage(str(calib_path), cv2.FILE_STORAGE_READ)
+    if not fs.isOpened():
+        raise RuntimeError(f"Could not open calibration file: {calib_path}")
+    try:
+        K = fs.getNode("camera_matrix").mat()
+        D = fs.getNode("distortion_coefficients").mat()
+    finally:
+        fs.release()
+    if K is None or D is None:
+        raise RuntimeError("Calibration must contain camera_matrix and distortion_coefficients")
+    return K.astype(np.float32), D.astype(np.float32)
+
+
+def _preprocess_frame_for_matching(
+    frame_bgr: np.ndarray,
+    apply_clahe: bool,
+    gamma: float,
+    sharpen: float,
+    center_mask_ratio: float,
+) -> np.ndarray:
+    """Lightweight normalization to stabilize map matching under lighting changes."""
+    out = frame_bgr.copy()
+    if apply_clahe:
+        lab = cv2.cvtColor(out, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        l = clahe.apply(l)
+        out = cv2.cvtColor(cv2.merge((l, a, b)), cv2.COLOR_LAB2BGR)
+    if abs(gamma - 1.0) > 1e-3:
+        inv_gamma = 1.0 / max(gamma, 1e-3)
+        lut = np.array([((i / 255.0) ** inv_gamma) * 255 for i in range(256)], dtype=np.uint8)
+        out = cv2.LUT(out, lut)
+    if sharpen > 1e-3:
+        blur = cv2.GaussianBlur(out, (0, 0), 1.2)
+        out = cv2.addWeighted(out, 1.0 + sharpen, blur, -sharpen, 0)
+    if 0.0 < center_mask_ratio < 1.0:
+        h, w = out.shape[:2]
+        cx, cy = w // 2, h // 2
+        hw = int((w * center_mask_ratio) * 0.5)
+        hh = int((h * center_mask_ratio) * 0.5)
+        mask = np.zeros((h, w), dtype=np.uint8)
+        x0, x1 = max(0, cx - hw), min(w, cx + hw)
+        y0, y1 = max(0, cy - hh), min(h, cy + hh)
+        mask[y0:y1, x0:x1] = 255
+        out = cv2.bitwise_and(out, out, mask=mask)
+    return out
+
+
+def _match_spread_score(ref_pts: np.ndarray, chip_w: int, chip_h: int) -> float:
+    """How well matches cover the chip area (0..1)."""
+    if ref_pts is None or len(ref_pts) < 8:
+        return 0.0
+    min_xy = np.min(ref_pts, axis=0)
+    max_xy = np.max(ref_pts, axis=0)
+    span_x = float(max_xy[0] - min_xy[0]) / max(float(chip_w), 1.0)
+    span_y = float(max_xy[1] - min_xy[1]) / max(float(chip_h), 1.0)
+    return float(np.clip(math.sqrt(max(span_x, 0.0) * max(span_y, 0.0)), 0.0, 1.0))
+
+
+def _estimate_topk_chip_pose(
+    frame_bgr: np.ndarray,
+    ref_gray: np.ndarray,
+    config: VPSDeviceConfig,
+    index,
+    K: np.ndarray,
+    ref_center_lat: float,
+    ref_center_lon: float,
+    ref_width_px: int,
+    ref_height_px: int,
+    ref_m_per_px: float,
+    dsm_m: np.ndarray | None,
+    prior_latlon: tuple[float, float] | None,
+    prior_gate_m: float,
+    min_inliers: int,
+    topk: int,
+) -> EstimateResult:
+    """
+    Retrieve top-K chips, run local matching per chip, and keep best geometric fix.
+    """
+    q_gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY) if frame_bgr.ndim == 3 else frame_bgr
+    detector, desc_ext = _get_descriptor_extractor(
+        config.use_beblid, getattr(config, "use_sift", False), config.nfeatures_orb
+    )
+    flann = build_flann_matcher(getattr(config, "use_sift", False))
+
+    q_kpts, q_des = extract_features(q_gray, detector, desc_ext, nfeatures=config.nfeatures_orb)
+    if q_des is None or len(q_kpts) < max(config.min_matches, 8):
+        return EstimateResult(False, 0.0, 0.0, 0.0, len(q_kpts) if q_kpts else 0)
+
+    candidates = index.query(frame_bgr, topk=max(1, int(topk)))
+    if not candidates:
+        return EstimateResult(False, 0.0, 0.0, 0.0, 0)
+
+    best = None
+    best_score = None
+    best_rank = None
+    for rank, cand in enumerate(candidates, start=1):
+        chip = cand.chip
+        chip_gray = ref_gray[chip.y0:chip.y0 + chip.h, chip.x0:chip.x0 + chip.w]
+        ref_kpts, ref_des = extract_features(chip_gray, detector, desc_ext, nfeatures=config.nfeatures_orb)
+        if ref_des is None or len(ref_kpts) < max(config.min_matches, 8):
+            continue
+        matches = match_with_ratio_test(ref_des, q_des, flann, ratio=config.ratio_threshold)
+        if len(matches) < max(config.min_matches, 8):
+            continue
+
+        ref_pts = np.float32([ref_kpts[m.queryIdx].pt for m in matches])
+        qry_pts = np.float32([q_kpts[m.trainIdx].pt for m in matches])
+        ref_pts_full = [(p[0] + chip.x0, p[1] + chip.y0) for p in ref_pts]
+
+        if dsm_m is not None:
+            fix = pnp_fix_with_dsm(
+                ref_pts_full,
+                qry_pts.tolist(),
+                K=K,
+                dsm_m=dsm_m,
+                ref_center_lat=ref_center_lat,
+                ref_center_lon=ref_center_lon,
+                ref_width_px=ref_width_px,
+                ref_height_px=ref_height_px,
+                ref_m_per_px=ref_m_per_px,
+            )
+        else:
+            fix = planar_pose_fix_from_matches(
+                ref_pts_full,
+                qry_pts.tolist(),
+                K=K,
+                ref_center_lat=ref_center_lat,
+                ref_center_lon=ref_center_lon,
+                ref_width_px=ref_width_px,
+                ref_height_px=ref_height_px,
+                ref_m_per_px=ref_m_per_px,
+            )
+        if not fix.success or fix.n_inliers < min_inliers:
+            continue
+        if prior_latlon is not None and prior_gate_m > 0:
+            d = get_distance_metres(prior_latlon[0], prior_latlon[1], fix.lat, fix.lon)
+            if d > prior_gate_m:
+                continue
+
+        spread = _match_spread_score(ref_pts, chip.w, chip.h)
+        rmse_score = float(np.clip(1.0 / (1.0 + (fix.reproj_rmse_px / 4.0)), 0.0, 1.0))
+        inlier_score = float(np.clip(fix.n_inliers / 30.0, 0.0, 1.0))
+        retrieval_score = float(np.clip((cand.score + 1.0) * 0.5, 0.0, 1.0))
+        quality = 0.35 * inlier_score + 0.25 * rmse_score + 0.20 * spread + 0.20 * retrieval_score
+        score = (
+            int(fix.n_inliers),
+            float(quality),
+            -float(fix.reproj_rmse_px),
+        )
+        if best_score is None or score > best_score:
+            best_score = score
+            best = (fix, len(matches), quality)
+            best_rank = rank
+
+    if best is None:
+        return EstimateResult(False, 0.0, 0.0, 0.0, 0)
+
+    best_fix, best_match_count, quality = best
+    rank_weight = 1.0 - 0.1 * max(0, (best_rank or 1) - 1)
+    rank_weight = float(np.clip(rank_weight, 0.5, 1.0))
+    conf = float(np.clip(best_fix.confidence * rank_weight * (0.7 + 0.6 * quality), 0.0, 1.0))
+    weighted_matches = max(min_inliers, int(round(best_fix.n_inliers * (0.7 + 0.6 * quality))))
+    return EstimateResult(
+        success=True,
+        lat=best_fix.lat,
+        lon=best_fix.lon,
+        confidence=conf,
+        n_matches=int(max(weighted_matches, best_match_count)),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
@@ -258,9 +449,63 @@ def run(args):
     config = VPSDeviceConfig(**config_kwargs)
     estimator = create_estimator_from_proxigo_region(args.reference, config)
     ref = estimator._ref
+    ref_m_per_px = float((ref.x_m_per_px + ref.y_m_per_px) * 0.5)
     print(f"Reference loaded: {ref.width_px}x{ref.height_px} px, "
           f"center=({ref.center_lat:.6f}, {ref.center_lon:.6f}), "
           f"res={ref.x_m_per_px:.3f} m/px")
+
+    # Optional benchmark-style top-K chip retrieval + geometric pose scoring.
+    use_topk_map = args.topk_map_update > 1
+    retrieval_index = None
+    K = None
+    dsm_m = None
+    undistort_K = None
+    undistort_D = None
+    if args.dsm_path:
+        dsm_path = Path(args.dsm_path)
+        dsm = cv2.imread(str(dsm_path), cv2.IMREAD_UNCHANGED)
+        if dsm is None:
+            print(f"WARNING: Could not load DSM: {dsm_path}. Continuing without DSM.")
+        else:
+            dsm_m = dsm.astype(np.float32)
+            print(f"DSM loaded: {dsm_path.name}  shape={dsm_m.shape}")
+    if args.camera_calibration:
+        try:
+            undistort_K, undistort_D = _load_camera_calibration(Path(args.camera_calibration))
+            print(f"Camera calibration loaded: {args.camera_calibration}")
+        except Exception as e:
+            print(f"WARNING: Failed to load calibration ({e}); undistortion disabled.")
+
+    if use_topk_map:
+        try:
+            from vps_device.retrieval import ReferenceChipIndex, TorchResNet18Backend
+        except Exception as e:
+            print(f"WARNING: top-K map mode unavailable ({e}); falling back to single-frame estimator.")
+            use_topk_map = False
+        else:
+            backend = TorchResNet18Backend(device=args.retrieval_device)
+            ref_bgr = cv2.cvtColor(ref.image, cv2.COLOR_GRAY2BGR)
+            cache_path = _build_retrieval_cache_path(
+                Path(args.cache_dir),
+                Path(args.reference),
+                int(args.chip_size),
+                int(args.chip_stride),
+            )
+            if cache_path.exists() and not args.rebuild_index:
+                retrieval_index = ReferenceChipIndex.load(cache_path, ref_bgr=ref_bgr, backend=backend)
+                print(f"Top-K retrieval index loaded: {len(retrieval_index.chips)} chips")
+            else:
+                retrieval_index = ReferenceChipIndex(
+                    ref_bgr=ref_bgr,
+                    backend=backend,
+                    chip_size=int(args.chip_size),
+                    stride=int(args.chip_stride),
+                )
+                print(f"Building top-K retrieval index (chip={args.chip_size}, stride={args.chip_stride}) ...")
+                retrieval_index.build()
+                retrieval_index.save(cache_path)
+                print(f"Top-K retrieval index saved: {cache_path}")
+            K = camera_matrix_from_fov(args.width, args.height, args.fov_h)
 
     # --- VO + EKF fusion ---
     vo = VisualOdometry(config, nfeatures=max(config.nfeatures_orb, 1000))
@@ -273,6 +518,13 @@ def run(args):
     print(f"Fusion: VO every frame, map match every {map_match_every} frames, "
           f"map noise={args.map_noise:.0f}m, min inliers={min_map_inliers}, "
           f"cal frames={args.calibration_frames}")
+    if use_topk_map:
+        print(
+            f"Map mode: top-K chip retrieval (K={args.topk_map_update}, "
+            f"chip={args.chip_size}, stride={args.chip_stride})"
+        )
+    else:
+        print("Map mode: single-estimator full-reference")
 
     # Load ground truth if provided
     ground_truth = None
@@ -347,6 +599,17 @@ def run(args):
             altitude = gt_entry["height"] if gt_entry else args.altitude
             frame_yaw = gt_entry.get("yaw") if gt_entry else None
 
+            map_frame = frame
+            if undistort_K is not None and undistort_D is not None:
+                map_frame = cv2.undistort(map_frame, undistort_K, undistort_D)
+            map_frame = _preprocess_frame_for_matching(
+                map_frame,
+                apply_clahe=not args.no_clahe,
+                gamma=args.match_gamma,
+                sharpen=args.match_sharpen,
+                center_mask_ratio=args.center_mask_ratio,
+            )
+
             # Reset VO on large heading changes (e.g. U-turns in survey flights)
             if frame_yaw is not None and prev_yaw is not None:
                 yaw_delta = abs(frame_yaw - prev_yaw)
@@ -399,12 +662,45 @@ def run(args):
             # --- 2. Map Matching (every Nth frame) ---
             should_map_match = (frame_idx % map_match_every == 0)
             if should_map_match:
-                last_map_result = estimator.estimate(frame, altitude)
+                prior_latlon = ekf.position if ekf.initialized else None
+                prior_gate_m = max(float(args.prior_gate_m), altitude * args.prior_gate_alt_scale)
+                if use_topk_map and retrieval_index is not None and K is not None:
+                    last_map_result = _estimate_topk_chip_pose(
+                        frame_bgr=map_frame,
+                        ref_gray=ref.image,
+                        config=config,
+                        index=retrieval_index,
+                        K=K,
+                        ref_center_lat=ref.center_lat,
+                        ref_center_lon=ref.center_lon,
+                        ref_width_px=ref.width_px,
+                        ref_height_px=ref.height_px,
+                        ref_m_per_px=ref_m_per_px,
+                        dsm_m=dsm_m,
+                        prior_latlon=prior_latlon,
+                        prior_gate_m=prior_gate_m,
+                        min_inliers=min_map_inliers,
+                        topk=args.topk_map_update,
+                    )
+                else:
+                    last_map_result = estimator.estimate(map_frame, altitude)
                 if last_map_result.success and last_map_result.n_matches >= min_map_inliers:
+                    mm_conf = last_map_result.confidence
+                    mm_inliers = last_map_result.n_matches
+                    if prior_latlon is not None:
+                        prior_dist_m = get_distance_metres(
+                            prior_latlon[0], prior_latlon[1], last_map_result.lat, last_map_result.lon
+                        )
+                        # Continuously down-weight updates near the prior gate edge.
+                        if prior_gate_m > 0:
+                            prior_weight = float(np.clip(1.0 - (prior_dist_m / prior_gate_m), 0.15, 1.0))
+                            mm_conf *= prior_weight
+                            mm_inliers = max(min_map_inliers, int(round(mm_inliers * prior_weight)))
+                    mm_conf = float(np.clip(mm_conf, 0.01, 1.0))
                     accepted = ekf.update_map_match(
                         last_map_result.lat, last_map_result.lon,
-                        confidence=last_map_result.confidence,
-                        n_inliers=last_map_result.n_matches,
+                        confidence=mm_conf,
+                        n_inliers=mm_inliers,
                         altitude_m=altitude,
                     )
                     if accepted:
@@ -624,6 +920,34 @@ def main():
     parser.add_argument("--matching-flow", type=str, default="homography",
                         choices=["homography", "cluster"],
                         help="Map-matching flow: homography or cluster-gated geo flow (default homography)")
+    parser.add_argument("--topk-map-update", type=int, default=1,
+                        help="Top-K chip retrieval map update (default 1 = disabled, estimator-only).")
+    parser.add_argument("--chip-size", type=int, default=768,
+                        help="Retrieval chip size (px) when top-K map mode is enabled.")
+    parser.add_argument("--chip-stride", type=int, default=512,
+                        help="Retrieval chip stride (px) when top-K map mode is enabled.")
+    parser.add_argument("--cache-dir", type=str, default="test_data/cache",
+                        help="Directory for retrieval index cache files.")
+    parser.add_argument("--rebuild-index", action="store_true",
+                        help="Force rebuild of retrieval index cache.")
+    parser.add_argument("--retrieval-device", type=str, default="cpu",
+                        help="Torch device for retrieval backend (cpu, cuda:0, ...).")
+    parser.add_argument("--dsm-path", type=str, default=None,
+                        help="Optional DSM raster aligned with reference (enables DSM-backed PnP in top-K mode).")
+    parser.add_argument("--prior-gate-m", type=float, default=180.0,
+                        help="Base prior gate radius in metres for map updates.")
+    parser.add_argument("--prior-gate-alt-scale", type=float, default=1.5,
+                        help="Additional prior-gate metres per altitude metre (default 1.5x alt).")
+    parser.add_argument("--camera-calibration", type=str, default=None,
+                        help="OpenCV calibration YAML/JSON (camera_matrix + distortion_coefficients).")
+    parser.add_argument("--no-clahe", action="store_true",
+                        help="Disable CLAHE normalization before map matching.")
+    parser.add_argument("--match-gamma", type=float, default=1.0,
+                        help="Gamma correction for map matching preprocessing (default 1.0).")
+    parser.add_argument("--match-sharpen", type=float, default=0.2,
+                        help="Unsharp amount for map matching preprocessing (default 0.2).")
+    parser.add_argument("--center-mask-ratio", type=float, default=0.85,
+                        help="Keep central ROI ratio [0..1] for map matching (default 0.85).")
     parser.add_argument("--ratio", type=float, default=None,
                         help="Lowe's ratio test threshold (default: 0.75 for SIFT, "
                              "0.95 for ORB). Lower = stricter matching.")
@@ -659,6 +983,16 @@ def main():
         parser.error("--frame-stride must be >= 1")
     if args.max_frames is not None and args.max_frames < 1:
         parser.error("--max-frames must be >= 1 when provided")
+    if args.topk_map_update < 1:
+        parser.error("--topk-map-update must be >= 1")
+    if args.chip_size < 64 or args.chip_stride < 16:
+        parser.error("--chip-size must be >= 64 and --chip-stride must be >= 16")
+    if args.prior_gate_m < 0 or args.prior_gate_alt_scale < 0:
+        parser.error("--prior-gate-m and --prior-gate-alt-scale must be >= 0")
+    if args.match_gamma <= 0:
+        parser.error("--match-gamma must be > 0")
+    if not (0.0 <= args.center_mask_ratio <= 1.0):
+        parser.error("--center-mask-ratio must be between 0 and 1")
 
     run(args)
 

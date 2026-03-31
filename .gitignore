@@ -137,3 +137,26 @@ test_data/cache/
 *.tar.gz
 *.tif
 *.tiff
+
+# =============================================================
+# Local benchmark clones, debug artifacts, and generated reports
+# =============================================================
+# Local external benchmark/reference snapshots (not project source)
+test_data/suas_2022_analysis/
+test_data/uav_avl_benchmark_ref/
+
+# Generated debug frame dumps
+test_data/**/vnav_like_debug_frames/
+
+# Generated feasibility/ablation outputs
+test_data/avl_guideline/
+test_data/avl_guideline/feasibility_*.csv
+test_data/avl_guideline/feasibility_*.json
+test_data/avl_guideline/feasibility_*.md
+test_data/avl_guideline/ablation_matrix_report.md
+test_data/avl_guideline/root_cause_report.md
+
+# Large local image assets under test_data
+test_data/**/*.png
+test_data/**/*.jpg
+test_data/**/*.jpeg

@@ -180,6 +180,9 @@ def pnp_fix_with_dsm(
     ref_width_px: int,
     ref_height_px: int,
     ref_m_per_px: float,
+    ref_anchor_px: Optional[Tuple[float, float]] = None,
+    dsm_anchor_px: Optional[Tuple[float, float]] = None,
+    dsm_resolution_m: Optional[float] = None,
     ransac_reproj_px: float = 4.0,
 ) -> PnPFix:
     """
@@ -199,13 +202,27 @@ def pnp_fix_with_dsm(
     qry_inl = qry
 
     # Build 3D points from DSM sampled at ref pixel locations.
-    # DSM is often a different resolution than the reference orthophoto.
-    # Assume DSM covers the same ROI extent and map pixels by scale factors.
+    # Preferred path (benchmark-style): use anchor points that align reference px
+    # to DSM px and convert by ref/dsm resolution ratio.
+    # Fallback path: global image-size scaling.
     h_dsm, w_dsm = dsm_m.shape[:2]
-    sx = (w_dsm - 1) / max(ref_width_px - 1, 1)
-    sy = (h_dsm - 1) / max(ref_height_px - 1, 1)
-    xs = np.clip(np.round(ref_inl[:, 0] * sx).astype(int), 0, w_dsm - 1)
-    ys = np.clip(np.round(ref_inl[:, 1] * sy).astype(int), 0, h_dsm - 1)
+    if (
+        ref_anchor_px is not None
+        and dsm_anchor_px is not None
+        and dsm_resolution_m is not None
+        and dsm_resolution_m > 0
+        and ref_m_per_px > 0
+    ):
+        scale = ref_m_per_px / float(dsm_resolution_m)
+        xs_f = (ref_inl[:, 0] - float(ref_anchor_px[0])) * scale + float(dsm_anchor_px[0])
+        ys_f = (ref_inl[:, 1] - float(ref_anchor_px[1])) * scale + float(dsm_anchor_px[1])
+        xs = np.clip(np.round(xs_f).astype(int), 0, w_dsm - 1)
+        ys = np.clip(np.round(ys_f).astype(int), 0, h_dsm - 1)
+    else:
+        sx = (w_dsm - 1) / max(ref_width_px - 1, 1)
+        sy = (h_dsm - 1) / max(ref_height_px - 1, 1)
+        xs = np.clip(np.round(ref_inl[:, 0] * sx).astype(int), 0, w_dsm - 1)
+        ys = np.clip(np.round(ref_inl[:, 1] * sy).astype(int), 0, h_dsm - 1)
     zs = dsm_m[ys, xs].astype(np.float64)
     # Replace invalid / NaN heights
     zs = np.where(np.isfinite(zs), zs, np.nanmedian(zs[np.isfinite(zs)]) if np.any(np.isfinite(zs)) else 0.0)
