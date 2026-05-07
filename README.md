@@ -41,20 +41,30 @@ python scripts/vps_live.py \
 
 - This repository includes multiple workflows covering core VPS, benchmarking, and integration utilities.
 
-For local compatibility mode (when you already have prepared folders like `test_data/anyvis_qz`):
+## Physical Trial Devices
 
-```bash
-python scripts/vps_avl_guideline_runner.py \
-  --dataset-root test_data \
-  --regions-yaml test_data/uav_avl_benchmark_ref/Regions_params/QZ_Town.yaml \
-  --region QZ_Town \
-  --ref-type HIGH \
-  --place QZ_SongCity \
-  --source-dir-override test_data/anyvis_qz/images_nadir \
-  --metadata-json-override test_data/anyvis_temp/QZ_Town.json \
-  --reference-map-override test_data/anyvis_qz/result_roi.tif \
-  --dsm-path-override test_data/anyvis_qz/dsm_roi.tif
-```
+The software baseline is developed so it can be exercised on companion-compute hardware during physical trials.
+
+<p align="center">
+  <img src="OrinCameraDemo.JPG" alt="Orin Nano camera and enclosure demo" width="60%" />
+  <img src="Pi5.JPG" alt="Raspberry Pi 5 testing setup" width="38%" />
+</p>
+
+- **Orin Nano + camera rig (`OrinCameraDemo.JPG`)**
+  - Primary trial hardware target for running the VPS pipeline on-device.
+  - Used for camera capture, feature matching, and replay/live validation loops.
+- **Raspberry Pi 5 setup (`Pi5.JPG`)**
+  - Secondary platform for portability checks and lightweight compatibility testing.
+  - Useful for validating deployment assumptions before full Orin/PX4 integration trials.
+
+## Datasets Used
+
+- **UAV-VisLoc (primary GT benchmark dataset)**
+  - Used for deterministic replay benchmarking with ground-truth comparison.
+  - Typical workflow: extract a section with `scripts/setup_uav_visloc.py`, then run `scripts/vps_live.py` with `--source-csv`.
+- **AnyVisLoc / UAV-AVL-style layouts (secondary experimentation)**
+  - Used for additional software-only benchmarking and retrieval/matching experiments.
+  - Supports stress-testing map matching behavior under different map/scene conditions.
 
 > **Citation**: Yuxuan Zhou et al., "UAV-VisLoc: A Large-scale Dataset for UAV Visual Localization," arXiv:2405.11936, 2024.
 
