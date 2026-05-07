@@ -36,9 +36,3 @@ Track the practical next steps to move this project from camera-only benchmarkin
 - Orin runtime validated with camera feed and logging enabled
 - ROS2/PX4 integration validated in SITL and ready for field tests
 
-## Out of Scope (for now)
-
-- Productization timelines
-- Manufacturing/certification planning
-- Competitive landscape analysis
-

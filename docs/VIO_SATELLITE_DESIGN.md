@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the Visual Inertial Odometry (VIO) system enhanced with satellite imagery region referencing for absolute position correction in GPS-denied environments. The system combines:
+This document describes a proposed/iterative Visual Inertial Odometry (VIO) design enhanced with satellite imagery region referencing for absolute position correction in GPS-denied environments. The system combines:
 
 1. **OpenVINS** - Real-time visual-inertial state estimation
 2. **Satellite Matching** - Aerial-to-satellite image correlation for absolute positioning
@@ -10,7 +10,7 @@ This document describes the Visual Inertial Odometry (VIO) system enhanced with 
 
 ## Revisit Plan (Practical Path)
 
-This is the approach to revisit next, in a minimal and testable sequence:
+This is the working approach to evaluate next, in a minimal and testable sequence:
 
 1. Keep the existing camera VPS pipeline as the absolute-position update source.
 2. Add IMU/VIO prediction in software first (no hardware dependency).

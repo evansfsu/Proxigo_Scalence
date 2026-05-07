@@ -12,13 +12,13 @@
 
 ## System Overview
 
-**Proxigo Scalence** is an autonomous fixed-wing UAV platform designed for GPS-denied navigation using Visual Inertial Odometry (VIO) with satellite region referencing. The system is built on PX4, ROS2, and runs on an NVIDIA Orin Nano companion computer with Docker containerization.
+**Proxigo Scalence** is an autonomous fixed-wing UAV platform designed for GPS-denied navigation research using Visual Inertial Odometry (VIO) with satellite region referencing. The system is built on PX4, ROS2, and runs on an NVIDIA Orin Nano companion computer with Docker containerization.
 
 ### Key Capabilities
 - **Visual Inertial Odometry (VIO)** - Position estimation using camera + IMU fusion
 - **Satellite Region Referencing** - Pre-downloaded satellite imagery for absolute position correlation
-- **Obstacle Avoidance** - Real-time obstacle detection and path planning
-- **GPS-Denied Navigation** - Full autonomous operation without GPS dependency
+- **Obstacle Avoidance** - Planned/partial design direction (not presented here as field-validated)
+- **GPS-Denied Navigation** - Target capability under staged validation
 - **Modular Architecture** - Designed for future Visual Positioning System (VPS) hardware module
 
 ### Target Configurations

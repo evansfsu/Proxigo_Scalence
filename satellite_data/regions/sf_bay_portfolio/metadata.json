@@ -1,0 +1,21 @@
+{
+  "region_id": "sf_bay_portfolio",
+  "center": {
+    "latitude": 37.7749,
+    "longitude": -122.4194
+  },
+  "bbox": {
+    "north": 37.7793915764206,
+    "south": 37.770408423579404,
+    "east": -122.41371750602534,
+    "west": -122.42508249397466
+  },
+  "imagery": {
+    "file": "satellite.png",
+    "width_px": 2560,
+    "height_px": 2304,
+    "resolution_m": 0.4720126338095197,
+    "zoom": 18,
+    "source": "Esri World Imagery"
+  }
+}

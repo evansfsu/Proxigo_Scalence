@@ -1,244 +1,53 @@
 # Proxigo Scalence
 
-**GPS-Denied Visual Positioning System for Autonomous UAVs**
+Minimal setup-focused repository for a vision-first VPS baseline.
 
-I built Proxigo Scalence as a practical VPS project for GPS-denied drone localization. The core idea is simple: use the downward camera feed, match it to a local satellite map, and estimate position on-device (Orin Nano). The current work is camera-first VPS, with optional software-simulated IMU/VIO fusion experiments in the ROS2 stack.
+## Scope
 
----
+- Primary runnable path: `scripts/vps_live.py`
+- Primary reusable package: `src/vps_device/`
+- Benchmark/repro guidance: `docs/RECRUITER_REPRO_EVAL.md`
 
-## Performance Snapshot
+Most exploratory, draft, and media-generation workflows are intentionally not part of the default setup path.
 
-- **Best observed run (constrained single configuration):** approximately **80% hit-rate**.
-- **Typical current range (selected dataset slices):** approximately **60-70%** hit-rate.
-- **Harder slices:** lower performance due to map-domain mismatch and low absolute-update reliability.
-- **Current focus:** improve cross-region robustness, not only best-case tuning.
+## Minimal Setup
 
-### Validation Status
-
-| Area | Status |
-|------|--------|
-| Camera-only VPS (offline benchmark runs) | Validated |
-| ROS2 + PX4 stack on Orin Nano | Integrated and previously run |
-| IMU/VIO path | Software-simulated in `vio_bridge` + fusion stack |
-| IMU hardware flight validation | Pending |
-
----
-
-## How It Works
-
-This repo ended up with multiple workflows as the project evolved. Instead of one single pipeline, think of it as a toolbox with a shared core.
-
-### Approach map (what each path is for)
-
-| Path | Main files | Purpose |
-|---|---|---|
-| Core estimator | `src/vps_device/vps_device/estimator.py` | Fast camera-to-map position estimate with continuity filtering |
-| Standalone fusion runners | `scripts/vps_live.py`, `scripts/vps_avl_benchmark.py`, `scripts/vps_vnav_like.py` | More complete VO + map matching + EKF experiments |
-| ROS2 + PX4 integration | `src/proxigo_bringup`, `src/state_fusion`, `src/vio_bridge`, `src/satellite_matching` | Full system integration and simulation/hardware bring-up |
-| Web simulation | `scripts/vps_sim_web` | Quick visual testing with map/trajectory debugging in browser |
-
-### 1) Core estimator path (`VPSEstimator`)
-
-```
-Camera Frame (live)          Satellite Reference (pre-loaded)
-       |                              |
-       v                              v
- ORB/SIFT Features               ORB/SIFT Features
-       |                              |
-       +---------- FLANN + ratio test +
-                       |
-                       v
-         K-means + continuity gating
-                       |
-                       v
-        Geo transform (pixel -> lat/lon)
-                       |
-                       v
-               Position estimate
-```
-
-### 2) Standalone fusion path (`vps_live.py`, `vps_avl_benchmark.py`, `vps_vnav_like.py`)
-
-```
-Frame -> VO predict -> Retrieval top-K chips -> local match + PnP -> EKF update
-```
-
-### 3) ROS2/PX4 full-device path (simulation and hardware-oriented)
-
-```
-Camera + (optional IMU) -> VIO bridge + satellite matcher -> state_fusion EKF
--> MAVROS/PX4 interface -> SITL (Gazebo) or hardware bring-up
-```
-
-### 4) Web simulation path (`scripts/vps_sim_web`)
-
-```
-Synthetic/recorded trajectory -> VPS matching visualizer -> Cesium 3D debug view
-```
-
-In practice, I use:
-- the **core estimator** for quick map-match sanity checks,
-- the **fusion runners** for benchmark tuning and ablations,
-- the **ROS2/PX4 path** when validating integration behavior,
-- and the **web simulator** for fast visual debugging before flight tests.
-
----
-
-## Hardware
-
-| Component | Model | Purpose |
-|-----------|-------|---------|
-| Companion Computer | NVIDIA Orin Nano 8GB | Runs VPS pipeline |
-| Camera | Arducam IMX477 (12.3MP, 6mm CS lens) | Downward-facing aerial imagery |
-| Flight Controller | PX4 Autopilot (Pixhawk 6X/6C) | Autopilot, UART to Orin Nano |
-| IMU (optional) | VectorNav VN-100 or BMI088 | Software-simulated VIO/EKF path; hardware validation pending |
-
-### Hardware Preview
-
-<p align="center">
-  <img src="OrinCameraDemo.JPG" alt="Orin Nano camera and enclosure demo" width="60%" />
-  <img src="Pi5.JPG" alt="Raspberry Pi 5 testing setup" width="38%" />
-</p>
-
-- Left: **Primary deployment setup** (Orin Nano + camera + enclosure concept)
-- Right: **Alternative test setup** (Raspberry Pi 5)
-
----
-
-## Quick Start
-
-### 1. Install Dependencies
+1) Install dependencies:
 
 ```bash
-pip install opencv-python opencv-contrib-python numpy scikit-learn Pillow
+pip install opencv-python opencv-contrib-python numpy scikit-learn Pillow matplotlib
 ```
 
-### 2. Prepare Satellite Reference Data
-
-Download satellite imagery for your flight area and save it as a Proxigo region:
+2) Prepare a reference region:
 
 ```bash
 python scripts/prepare_region.py \
-    --lat 36.23 --lon -116.81 --radius-m 500 \
-    --output-dir satellite_data/regions/death_valley
+  --lat 36.23 --lon -116.81 \
+  --radius-m 500 \
+  --output-dir satellite_data/regions/my_region
 ```
 
-This creates `satellite.png` + `metadata.json` in the output directory.
-
-### 3. Run VPS Live
-
-With a camera:
+3) Run VPS on video:
 
 ```bash
 python scripts/vps_live.py \
-    --source /dev/video0 \
-    --reference satellite_data/regions/death_valley \
-    --altitude 50
+  --source flight_recording.mp4 \
+  --reference satellite_data/regions/my_region \
+  --altitude 50 \
+  --output-csv results.csv
 ```
 
-With a pre-recorded video:
+## Ground-Truth Replay Benchmark
 
-```bash
-python scripts/vps_live.py \
-    --source flight_recording.mp4 \
-    --reference satellite_data/regions/death_valley \
-    --altitude 50 \
-    --output-csv results.csv
-```
+Use the reproducible benchmark flow documented in:
 
-The display window shows the camera feed with detected keypoints, feature match visualization against the satellite reference, estimated position, and a position trail on a mini-map.
+- `docs/RECRUITER_REPRO_EVAL.md`
+- `docs/REPORT_EVIDENCE_BUNDLE.md`
 
-Press `q` to quit.
+## Notes
 
-### 4. Run the Web Simulator
-
-Test the VPS algorithm on any region without flying:
-
-```bash
-cd scripts/vps_sim_web
-pip install -r requirements.txt
-python app.py
-```
-
-Open `http://localhost:5000/3d` for the 3D CesiumJS simulator with trajectory simulation, VO vs VPS comparison, and debug match visualization.
-
----
-
-## Test Data: UAV-VisLoc Dataset
-
-The project uses the [UAV-VisLoc](https://github.com/IntelliSensing/UAV-VisLoc) dataset for benchmarking -- 6,742 drone images with GPS ground truth across 11 regions, each paired with a georeferenced satellite map.
-
-Download the dataset (16.4 GB): [Google Drive](https://drive.google.com/file/d/1xYODANyilEMM3CfWh85APwkTHQeLTcCT/view?usp=sharing) or [Kaggle](https://www.kaggle.com/datasets/hailong1610/uav-visloc-dataset)
-
-Place the zip at the project root as `UAV_VisLoc_dataset.zip`, then extract a section:
-
-```bash
-# Extract section 07 (smallest, 30 images, ~29 MB)
-python scripts/setup_uav_visloc.py --section 07
-
-# Run VPS against it with ground-truth comparison
-python scripts/vps_live.py \
-    --source-dir test_data/uav_visloc/07/drone \
-    --source-csv test_data/uav_visloc/07/07.csv \
-    --reference test_data/uav_visloc/07 \
-    --altitude 689 --output-csv results.csv
-```
-
----
-
-## Test Data: UAV-AVL / AnyVisLoc (Low-Altitude Multi-View)
-
-The [UAV-AVL Benchmark](https://github.com/UAV-AVL/Benchmark?tab=readme-ov-file#baseline) provides a low-altitude, multi-view UAV visual localization dataset with reference maps and per-frame metadata (pose/camera fields).
-
-This repo includes a **separate benchmark-style runner** that mirrors the key baseline ideas:
-
-- **Deep retrieval** to reduce search space on large maps
-- **Local matching** on retrieved reference chips
-- **Planar pose fix** (homography decomposition using intrinsics) to generate an absolute measurement
-- **EKF fusion + gating** to reject outliers and smooth trajectory
-
-### Setup
-
-Install additional dependencies for deep retrieval (optional, benchmark runner only):
-
-```bash
-pip install torch torchvision
-```
-
-Download the UAV-AVL (1/25) dataset per their instructions and place it in your workspace. The dataset structure and tips are documented in the upstream repo:
-
-- `https://github.com/UAV-AVL/Benchmark?tab=readme-ov-file#baseline`
-
-### Run the benchmark runner
-
-Example (AnyVisLoc-style metadata JSON + an extracted image directory):
-
-```bash
-python scripts/vps_avl_benchmark.py \
-  --source-dir test_data/anyvis_qz/images_nadir \
-  --reference test_data/anyvis_qz \
-  --metadata-json test_data/anyvis_temp/QZ_Town.json \
-  --output-csv test_data/anyvis_qz/results_avl.csv \
-  --chip-size 768 --stride 512 --topk 5 \
-  --map-match-every 5 --min-pnp-inliers 12
-```
-
-Outputs a CSV with fused position, retrieval score, pose-fix diagnostics, and GT error (when metadata is provided).
-
-The output CSV includes `truth_lat`, `truth_lon`, and `error_m` columns for accuracy analysis.
-
-### Run with UAV-AVL guideline layout
-
-Use the helper runner when your data follows the upstream benchmark structure (`Data/` + `Regions_params/`):
-
-```bash
-python scripts/vps_avl_guideline_runner.py \
-  --dataset-root /path/to/UAV_AVL_demo \
-  --region QZ_Town \
-  --ref-type HIGH \
-  --place QZ_SongCity \
-  --topk 5 --chip-size 768 --stride 512
-```
+- This repository includes ongoing R&D components; not all modules are production-ready.
+- Trial/simulation media is for report instrumentation and communication, not flight-truth validation.
 
 For local compatibility mode (when you already have prepared folders like `test_data/anyvis_qz`):
 
@@ -294,7 +103,7 @@ Proxigo_Scalence/
 
 ---
 
-## VPS Algorithm
+## VPS Algorithm (Current Baseline)
 
 ### Pipeline
 
@@ -388,7 +197,7 @@ ros2 launch proxigo_bringup hardware.launch.py
 
 ## Roadmap
 
-### Phase 1: Software Validation -- COMPLETE
+### Phase 1: Software Validation -- COMPLETE (software scope)
 - [x] System architecture and documentation
 - [x] ROS2 package structure
 - [x] VPS estimator library (ORB + FLANN + K-means + geo-transform)
@@ -406,6 +215,11 @@ ros2 launch proxigo_bringup hardware.launch.py
 - [ ] First flight tests at 30-100m altitude
 - [ ] Performance tuning (feature count, matching threshold)
 
+### Scope Note
+
+- This repository includes both validated baseline components and exploratory modules.
+- Unless explicitly stated, examples and trial/simulation outputs should be treated as development artifacts rather than operational claims.
+
 ### Phase 3: VPS Hardware Module
 - [ ] OpenVINS VIO integration
 - [ ] IMU fusion for inter-frame odometry
@@ -419,13 +233,15 @@ See [VPS Module Roadmap](docs/VPS_MODULE_ROADMAP.md) for the full hardware modul
 
 ## Documentation
 
+These are the docs most tied to the current repo workflow (testing, calibration, and the standalone VPS package):
+
 - [Testing with Video](docs/TESTING_WITH_VIDEO.md) -- Pre-recorded video and image sequence testing
-- [System Architecture](docs/ARCHITECTURE.md)
-- [Docker Architecture](docs/DOCKER_ARCHITECTURE.md)
-- [VIO + Satellite Design](docs/VIO_SATELLITE_DESIGN.md)
-- [VPS Module Roadmap](docs/VPS_MODULE_ROADMAP.md)
-- [Simulation Setup](docs/SIMULATION_SETUP.md)
+- [Recruiter Reproducible Evaluation](docs/RECRUITER_REPRO_EVAL.md) -- GT-backed replay and deterministic report media generation
+- [VPS Device Module](docs/VPS_DEVICE_MODULE.md) -- Standalone `vps_device` Python package
 - [Calibration Guide](docs/CALIBRATION_GUIDE.md)
+- [VPS Module Roadmap](docs/VPS_MODULE_ROADMAP.md) -- Planned hardware module milestones
+
+Additional material under `docs/` covers Docker-based simulation, PX4 / QGroundControl troubleshooting, VTOL and fixed-wing notes, and broader architecture; some of it describes integrations or stacks that are partial or exploratory relative to the paths above.
 
 ---
 
