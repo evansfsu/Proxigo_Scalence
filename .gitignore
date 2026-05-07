@@ -119,10 +119,7 @@ compile_commands.json
 
 # Interview prep, drafts, working reports, and personal notes (do not commit)
 private_notes/
-interview_prep/
 drafts/
-docs/**/*INTERVIEW*.md
-docs/**/*interview*.md
 docs/**/*DRAFT*
 docs/REPORT_DRAFT*
 docs/REPORT_METRIC_CHECKLIST.md
@@ -183,39 +180,26 @@ satellite_data/regions/portfolio_demo/
 src/vps_device/test/output/
 
 # =============================================================
-# Repo cleanup: docs/drafts/interview and unfinished feature work
+# Repo cleanup: docs/drafts and unfinished feature work
 # =============================================================
 # Ignore most docs by default (keep only focused public-facing docs)
 docs/**
 
-# Interview / notes / drafts
-**/*INTERVIEW*
-**/*interview*
-**/*RECRUITER*
-**/*recruiter*
+# Notes / drafts
 **/*PORTFOLIO*
 **/*portfolio*
 **/*DRAFT*
 **/drafts/**
 **/private_notes/**
-**/interview_prep/**
 
-# Docs: recruiter/interview/portfolio specific artifacts
-docs/**/*INTERVIEW*
-docs/**/*interview*
-docs/**/*RECRUITER*
-docs/**/*recruiter*
+# Docs: portfolio/report specific artifacts
 docs/**/*PORTFOLIO*
 docs/**/*portfolio*
 docs/**/*REPORT*
 docs/**/*report*
-docs/**/*EVIDENCE*
-docs/**/*evidence*
 docs/**/*report_draft*
-docs/**/*report_evidence*
 docs/**/*report_metric*
 docs/**/REPORT_DRAFT*
-docs/**/REPORT_EVIDENCE*
 docs/**/REPORT_METRIC*
 
 # Unfinished / experimental stacks to keep local
