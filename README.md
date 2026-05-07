@@ -6,7 +6,7 @@ Minimal setup-focused repository for a vision-first VPS baseline.
 
 - Primary runnable path: `scripts/vps_live.py`
 - Primary reusable package: `src/vps_device/`
-- Benchmark/repro guidance: `docs/RECRUITER_REPRO_EVAL.md`
+- Benchmark/repro guidance: use `scripts/vps_live.py` outputs and local CSV metrics.
 
 Additional workflows and utilities exist in the repository beyond this default setup path.
 
@@ -36,13 +36,6 @@ python scripts/vps_live.py \
   --altitude 50 \
   --output-csv results.csv
 ```
-
-## Ground-Truth Replay Benchmark
-
-Use the reproducible benchmark flow documented in:
-
-- `docs/RECRUITER_REPRO_EVAL.md`
-- `docs/REPORT_EVIDENCE_BUNDLE.md`
 
 ## Notes
 
@@ -234,7 +227,6 @@ See [VPS Module Roadmap](docs/VPS_MODULE_ROADMAP.md) for the full hardware modul
 These are the docs most tied to the current repo workflow (testing, calibration, and the standalone VPS package):
 
 - [Testing with Video](docs/TESTING_WITH_VIDEO.md) -- Pre-recorded video and image sequence testing
-- [Recruiter Reproducible Evaluation](docs/RECRUITER_REPRO_EVAL.md) -- GT-backed replay and deterministic report media generation
 - [VPS Device Module](docs/VPS_DEVICE_MODULE.md) -- Standalone `vps_device` Python package
 - [Calibration Guide](docs/CALIBRATION_GUIDE.md)
 - [VPS Module Roadmap](docs/VPS_MODULE_ROADMAP.md) -- Planned hardware module milestones
