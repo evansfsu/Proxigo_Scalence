@@ -187,16 +187,36 @@ src/vps_device/test/output/
 # =============================================================
 # Ignore most docs by default (keep only focused public-facing docs)
 docs/**
-!docs/RECRUITER_REPRO_EVAL.md
-!docs/REPORT_EVIDENCE_BUNDLE.md
 
 # Interview / notes / drafts
 **/*INTERVIEW*
 **/*interview*
+**/*RECRUITER*
+**/*recruiter*
+**/*PORTFOLIO*
+**/*portfolio*
 **/*DRAFT*
 **/drafts/**
 **/private_notes/**
 **/interview_prep/**
+
+# Docs: recruiter/interview/portfolio specific artifacts
+docs/**/*INTERVIEW*
+docs/**/*interview*
+docs/**/*RECRUITER*
+docs/**/*recruiter*
+docs/**/*PORTFOLIO*
+docs/**/*portfolio*
+docs/**/*REPORT*
+docs/**/*report*
+docs/**/*EVIDENCE*
+docs/**/*evidence*
+docs/**/*report_draft*
+docs/**/*report_evidence*
+docs/**/*report_metric*
+docs/**/REPORT_DRAFT*
+docs/**/REPORT_EVIDENCE*
+docs/**/REPORT_METRIC*
 
 # Unfinished / experimental stacks to keep local
 scripts/vps_sim_web/

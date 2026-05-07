@@ -8,7 +8,7 @@ Minimal setup-focused repository for a vision-first VPS baseline.
 - Primary reusable package: `src/vps_device/`
 - Benchmark/repro guidance: `docs/RECRUITER_REPRO_EVAL.md`
 
-Most exploratory, draft, and media-generation workflows are intentionally not part of the default setup path.
+Additional workflows and utilities exist in the repository beyond this default setup path.
 
 ## Minimal Setup
 
@@ -46,8 +46,7 @@ Use the reproducible benchmark flow documented in:
 
 ## Notes
 
-- This repository includes ongoing R&D components; not all modules are production-ready.
-- Trial/simulation media is for report instrumentation and communication, not flight-truth validation.
+- This repository includes multiple workflows covering core VPS, benchmarking, and integration utilities.
 
 For local compatibility mode (when you already have prepared folders like `test_data/anyvis_qz`):
 
@@ -217,8 +216,7 @@ ros2 launch proxigo_bringup hardware.launch.py
 
 ### Scope Note
 
-- This repository includes both validated baseline components and exploratory modules.
-- Unless explicitly stated, examples and trial/simulation outputs should be treated as development artifacts rather than operational claims.
+- This repository includes both baseline components and extended integration modules.
 
 ### Phase 3: VPS Hardware Module
 - [ ] OpenVINS VIO integration
@@ -241,7 +239,7 @@ These are the docs most tied to the current repo workflow (testing, calibration,
 - [Calibration Guide](docs/CALIBRATION_GUIDE.md)
 - [VPS Module Roadmap](docs/VPS_MODULE_ROADMAP.md) -- Planned hardware module milestones
 
-Additional material under `docs/` covers Docker-based simulation, PX4 / QGroundControl troubleshooting, VTOL and fixed-wing notes, and broader architecture; some of it describes integrations or stacks that are partial or exploratory relative to the paths above.
+Additional material under `docs/` covers Docker-based simulation, PX4 / QGroundControl troubleshooting, VTOL and fixed-wing notes, and broader architecture.
 
 ---
 
