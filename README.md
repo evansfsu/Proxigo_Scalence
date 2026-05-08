@@ -2,6 +2,10 @@
 
 Minimal setup-focused repository for a vision-first VPS baseline.
 
+## Project Report
+
+- [Proxigo Visual Positioning Report (HTML)](docs/ProxigoVisualPositioning_Report_EvanSchneider.html)
+
 ## Scope
 
 - Primary runnable path: `scripts/vps_live.py`
