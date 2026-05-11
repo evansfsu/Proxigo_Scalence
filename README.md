@@ -4,7 +4,7 @@ Minimal setup-focused repository for a vision-first VPS baseline.
 
 ## Project Report
 
-- [Proxigo Visual Positioning Report (HTML)](ProxigoVisualPositioning_Report_EvanSchneider.html)
+- [Proxigo Visual Positioning Report (HTML)](Proxigo_Scalence_Report_v8.html)
 
 ## Scope
 
