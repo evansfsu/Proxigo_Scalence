@@ -3,7 +3,7 @@
 Minimal setup-focused repository for a vision-first VPS baseline.
 
 ## Project Report
-
+ Either Download from Repo, or Contact me. (Large 24MB File)
 - [Proxigo Visual Positioning Report (HTML)](Proxigo_Scalence_Report_v8.html)
 
 ## Scope
