@@ -1,6 +1,9 @@
 # Proxigo Scalence
+Large, multiple approach project for Drone Localization and Visual Positioning through Software Simulation. 
 
-Minimal setup-focused repository for a vision-first VPS baseline.
+I am only making some setup available due to complexity, outdate approaches, and prevention of copying. 
+
+I advise reading my Report first! Here in this ReadME is the Minimal setup focused on creating the Vision First VPS baseline.
 
 ## Project Report
  Either Download from Repo, or Contact me. (Large 24MB File)
